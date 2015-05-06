@@ -186,6 +186,54 @@ public rel[loc,AnalysisName] patternOne(str system, Maybe[System] ptopt = nothin
 	return patternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt);
 }
 
+public bool hasDangerousUse(Stmt s, str v) {
+	visit(s) {
+		case du:assign(var(name(name(v))),_) : {
+			println("Dangerous use found at <du@at>: <pp(du)>");
+			return true;
+		}
+
+		case du:assignWOp(var(name(name(v))),_,_) : {
+			println("Dangerous use found at <du@at>: <pp(du)>");
+			return true;
+		}
+
+		case du:listAssign([_*,someExpr(var(name(name(v)))),_*],_) : {
+			println("Dangerous use found at <du@at>: <pp(du)>");
+			return true;
+		}
+		
+		case du:refAssign(var(name(name(v))),_) : {
+			println("Dangerous use found at <du@at>: <pp(du)>");
+			return true;
+		}
+		
+		case du:call(_,[_*,actualParameter(var(name(name(v))),_),_*]) : {
+			// TODO: Should verify it is used as a reference
+			println("Dangerous use found at <du@at>: <pp(du)>");
+			return true;
+		}
+
+		case du:methodCall(_,_,[_*,actualParameter(var(name(name(v))),_),_*]) : {
+			// TODO: Should verify it is used as a reference
+			println("Dangerous use found at <du@at>: <pp(du)>");
+			return true;
+		}
+
+		case du:staticCall(_,_,[_*,actualParameter(var(name(name(v))),_),_*]) : {
+			// TODO: Should verify it is used as a reference
+			println("Dangerous use found at <du@at>: <pp(du)>");
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+public bool addressTaken(Stmt s, str v) {
+	return false;
+}
+
 @doc{
 	Resolve variable definitions for Pattern One. Pattern one is the following:
 	
@@ -240,13 +288,17 @@ public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 			if (!isEmpty(foreaches)) {
 				fe = foreaches[0];
 				if (fe.byRef) {
-					println("Cannot use foreach, it creates an alias");
+					println("Cannot use foreach, it creates an alias, <fe@at>");
 				} else {
 					aexp = fe.arrayExpr;
 					if (array(aelist) := aexp && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
-						res = res + { < qr.l, varName(getScalarString(aeItem.val)) > | aeItem <- aelist };
+						if (hasDangerousUse(fe, v)) {
+							println("Cannot use foreach, it has a potentially dangerous use");
+						} else {
+							res = res + { < qr.l, varName(getScalarString(aeItem.val)) > | aeItem <- aelist };
+						}
 					} else {
-						println("Array expression <pp(aexp)> does not match pattern 1");
+						println("Array expression <pp(aexp)> does not match pattern 1, <aexp@at>");
 					}
 				}
 			}
@@ -320,4 +372,13 @@ public void writePatternStats(str pname, map[str s, PatternStats p] stats) {
 		mkDirectory(resultLoc);
 	}
 	writeBinaryValueFile(resultLoc + "pattern-<pname>.bin", stats);
+}
+
+public void extractFunctionInfo(System s) {
+	// For each declared function and method, get whether the params
+	// are marked as reference params
+	
+	// TODO: Also need to load the library, do the same for possible
+	// library calls; we should do something similar to the includes
+	// analysis and require libs to be given
 }
