@@ -18,8 +18,9 @@ import lang::php::analysis::cfg::BuildCFG;
 import lang::php::analysis::NamePaths;
 import lang::php::analysis::evaluators::AlgebraicSimplification;
 import lang::php::analysis::names::AnalysisNames;
+import IO;import lang::php::analysis::signatures::Summaries;
+import lang::php::analysis::signatures::Signatures;
 
-import IO;
 import Set;
 import List;
 import String;
@@ -130,8 +131,14 @@ public void runAnalysis(System sys) {
 	vars = gatherVarVarUses(sys);
 }
 
+data CFG = emptyCFG();
+
 public CFG cfgForExpression(map[NamePath,CFG] cfgs, Expr e) {
-	return getOneFrom({ c | c <- cfgs<1>, /e := c});
+	cfgsFound = { c | c <- cfgs<1>, /Expr e2 := c, (e2@at)?, e2@at == e@at};
+	if (size(cfgsFound) > 0) {
+		return getOneFrom(cfgsFound);
+	}
+	return emptyCFG();
 }
 
 public bool hasVariableForName(var(expr(var(name(name(str s)))))) = true; // Variable variable
@@ -182,48 +189,106 @@ data ResolveStats = resolveStats(int resolved, int total, rel[loc,AnalysisName] 
 data PatternStats = patternStats(ResolveStats vvuses, ResolveStats vvcalls, ResolveStats vvmcalls, ResolveStats vvnews, ResolveStats vvprops,
 								 ResolveStats vvcconsts, ResolveStats vvscalls, ResolveStats vvstargets, ResolveStats vvsprops, ResolveStats vvsptargets);
 
-public rel[loc,AnalysisName] patternOne(str system, Maybe[System] ptopt = nothing()) {
-	return patternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt);
-}
-
-public bool hasDangerousUse(Stmt s, str v) {
+public bool hasDangerousUse(Stmt s, str v, FMParamInfo fm, set[loc] ignoreLocs = { }) {
 	visit(s) {
 		case du:assign(var(name(name(v))),_) : {
-			println("Dangerous use found at <du@at>: <pp(du)>");
-			return true;
+			if (du@at notin ignoreLocs) {
+				println("Dangerous use found at <du@at>: <pp(du)>");
+				return true;
+			}
 		}
 
 		case du:assignWOp(var(name(name(v))),_,_) : {
-			println("Dangerous use found at <du@at>: <pp(du)>");
-			return true;
+			if (du@at notin ignoreLocs) {
+				println("Dangerous use found at <du@at>: <pp(du)>");
+				return true;
+			}
 		}
 
 		case du:listAssign([_*,someExpr(var(name(name(v)))),_*],_) : {
-			println("Dangerous use found at <du@at>: <pp(du)>");
-			return true;
+			if (du@at notin ignoreLocs) {
+				println("Dangerous use found at <du@at>: <pp(du)>");
+				return true;
+			}
 		}
 		
 		case du:refAssign(var(name(name(v))),_) : {
-			println("Dangerous use found at <du@at>: <pp(du)>");
-			return true;
+			if (du@at notin ignoreLocs) {
+				println("Dangerous use found at <du@at>: <pp(du)>");
+				return true;
+			}
 		}
 		
-		case du:call(_,[_*,actualParameter(var(name(name(v))),_),_*]) : {
-			// TODO: Should verify it is used as a reference
-			println("Dangerous use found at <du@at>: <pp(du)>");
-			return true;
+		case du:call(ct,plist) : {
+			if (du@at notin ignoreLocs) {
+				if (name(name(fn)) := ct) {
+					for (idx <- index(plist), actualParameter(var(name(name(v))),_) := plist[idx]) {
+						if (fn in fm.functions<0>) {
+							fnMatches = fm.functions[fn];
+							for (fnMatch <- fnMatches, size(fnMatch) >= (idx+1), fnMatch[idx].isRef) {
+								println("Dangerous use, used with reference parameter at <du@at>: <pp(du)>");
+								return true;
+							}
+						} else {
+							println("Dangerous use, unknown function found at <du@at>: <pp(du)>");
+							return true;
+						}
+					}
+				} else {
+					println("Dangerous use, unknown call, found at <du@at>: <pp(du)>");
+					return true;
+				}
+				println("Safe use in call at <du@at>: <pp(du)>");
+				return false;
+			}
 		}
 
-		case du:methodCall(_,_,[_*,actualParameter(var(name(name(v))),_),_*]) : {
-			// TODO: Should verify it is used as a reference
-			println("Dangerous use found at <du@at>: <pp(du)>");
-			return true;
+		case du:methodCall(_,mt,plist) : {
+			if (du@at notin ignoreLocs) {
+				if (name(name(mn)) := mt) {
+					for (idx <- index(plist), actualParameter(var(name(name(v))),_) := plist[idx]) {
+						if (mn in fm.methods<0>) {
+							mnMatches = fm.methods[mn];
+							for (mnMatch <- mnMatches, size(mnMatch) >= (idx+1), mnMatch[idx].isRef) {
+								println("Dangerous use, used with reference parameter at <du@at>: <pp(du)>");
+								return true;
+							}
+						} else {
+							println("Dangerous use, unknown function found at <du@at>: <pp(du)>");
+							return true;
+						}
+					}
+				} else {
+					println("Dangerous use, unknown call, found at <du@at>: <pp(du)>");
+					return true;
+				}
+				println("Safe use in call at <du@at>: <pp(du)>");
+				return false;
+			}
 		}
 
-		case du:staticCall(_,_,[_*,actualParameter(var(name(name(v))),_),_*]) : {
-			// TODO: Should verify it is used as a reference
-			println("Dangerous use found at <du@at>: <pp(du)>");
-			return true;
+		case du:staticCall(_,mt,plist) : {
+			if (du@at notin ignoreLocs) {
+				if (name(name(mn)) := mt) {
+					for (idx <- index(plist), actualParameter(var(name(name(v))),_) := plist[idx]) {
+						if (mn in fm.methods<0>) {
+							mnMatches = fm.methods[mn];
+							for (mnMatch <- mnMatches, size(mnMatch) >= (idx+1), mnMatch[idx].isRef) {
+								println("Dangerous use, used with reference parameter at <du@at>: <pp(du)>");
+								return true;
+							}
+						} else {
+							println("Dangerous use, unknown function found at <du@at>: <pp(du)>");
+							return true;
+						}
+					}
+				} else {
+					println("Dangerous use, unknown call, found at <du@at>: <pp(du)>");
+					return true;
+				}
+				println("Safe use in call at <du@at>: <pp(du)>");
+				return false;
+			}
 		}
 	}
 	
@@ -247,9 +312,16 @@ public bool addressTaken(Stmt s, str v) {
 	is not used as the target of an assignment). This also needs to occur in the
 	// context of the foreach that provides the variable.
 }
-public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing()) {
+public rel[loc,AnalysisName] patternOne(str system, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), fmOpt = fmOpt, ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+
+public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	fm = (just(someFM) := fmOpt) ? someFM : extractFunctionInfo(pt);
 	
 	// Collapse all the var features
 	vvAll = collapseVVInfo(vv);
@@ -265,7 +337,7 @@ public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 		rel[loc,AnalysisName] res = { };
 			
 		// Grab back the proper control flow graph for a given location
-		for (qr <- qrSet, e := qr.e, hasVariableForName(e)) {
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
 			//println("Processing expression <pp(e)> at location <qr.l>");
 			//CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
 			//g = cfgAsGraph(c);
@@ -278,8 +350,8 @@ public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 			Script s = pt[qr.l.top];
 			list[Stmt] foreaches = [];
 			visit(s) {
-				case e : {
-					if (e@at == qr.l) {
+				case Expr e2 : {
+					if ((e2@at)? && (e2@at == qr.l)) {
 						foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,_,_,var(name(name(v))),_) := cn ];
 					} 
 				}
@@ -292,13 +364,13 @@ public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 				} else {
 					aexp = fe.arrayExpr;
 					if (array(aelist) := aexp && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
-						if (hasDangerousUse(fe, v)) {
-							println("Cannot use foreach, it has a potentially dangerous use");
+						if (hasDangerousUse(fe, v, fm)) {
+							println("Cannot use foreach, it has a potentially dangerous use, <fe@at>");
 						} else {
 							res = res + { < qr.l, varName(getScalarString(aeItem.val)) > | aeItem <- aelist };
 						}
 					} else {
-						println("Array expression <pp(aexp)> does not match pattern 1, <aexp@at>");
+						println("Array expression <pp(aexp)> does not match pattern 1, <qr.l>");
 					}
 				}
 			}
@@ -342,10 +414,132 @@ public map[str s, PatternStats p] patternOne(Corpus corpus) {
 	return res;
 }
 
-//data ResolveStats = resolveStats(int resolved, int total, rel[loc,AnalysisName] resolvedLocs);
-//
-//data PatternStats = patternStats(ResolveStats vvuses, ResolveStats vvcalls, ResolveStats vvmcalls, ResolveStats vvnews, ResolveStats vvprops,
-//								 ResolveStats vvcconsts, ResolveStats vvscalls, ResolveStats vvstargets, ResolveStats vvsprops, ResolveStats vvsptargets);
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternTwo(str system, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), fmOpt = fmOpt, ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+rel[loc,Expr] getStandardAssignmentsFor(str varname, set[CFGNode] nodes) {
+	return { < e@at, e > | exprNode(e:assign(var(name(name(varname))),_),_) <- nodes };
+}
+
+public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	fm = (just(someFM) := fmOpt) ? someFM : extractFunctionInfo(pt);
+	
+	// Collapse all the var features
+	vvAll = collapseVVInfo(vv);
+	
+	// Get back the script locations for all the uses
+	scriptLocs = { qr.l.top | qr <- vvAll };
+	//println("Found variable features in <size(scriptLocs)> files");
+	
+	// Generate control flow graphs for each script location
+	map[loc,map[NamePath,CFG]] scriptCFGs = loadCFGs(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
+		//for (qr <- qrSet,  e := qr.e, hasVariableForName(e)) {
+			//println("Processing expression <pp(e)> at location <qr.l>");
+			CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(e)> at <e@at>");
+			} else {
+				g = cfgAsGraph(c);
+				
+				// We have a variable feature use, so get the actual variable used to hold it
+				str v = getVariableName(e);
+				
+				// Find the node inside the system using a visit, that way we can also
+				// find the containing foreach
+				Script s = pt[qr.l.top];
+				list[Stmt] foreaches = [];
+				visit(s) {
+					case e : {
+						if (e@at == qr.l) {
+							foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,_,_,var(name(name(v))),_) := cn ];
+						} 
+					}
+				}
+				
+				if (!isEmpty(foreaches)) {
+					fe = foreaches[0];
+					if (fe.byRef) {
+						println("Cannot use foreach, it creates an alias, <fe@at>");
+					} else {
+						aexp = fe.arrayExpr;
+						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
+							// TODO: Verify reachability
+							assignments = getStandardAssignmentsFor(aname, carrier(g));
+							if (size(assignments<1>) == 1) {
+								assignLocs = assignments<0>;
+								assignExpr = getOneFrom(assignments<1>);						
+								if (array(aelist) := assignExpr.assignExpr && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
+									if (hasDangerousUse(fe, v, fm, ignoreLocs=assignLocs)) {
+										println("Cannot use foreach, it has a potentially dangerous use");
+									} else {
+										res = res + { < qr.l, varName(getScalarString(aeItem.val)) > | aeItem <- aelist };
+									}
+								} else {
+									println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 2, <qr.l>");
+								}
+							} else if (isEmpty(assignments<1>)) {
+								println("No local assignments, cannot use variable <aname>, <qr.l>");
+							} else {
+								println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+							}							
+						} else {
+							println("Array expression in foreach <pp(aexp)> does not match pattern 2, <qr.l>");
+						}
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternTwo(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs("one",s));
+	}
+	
+	return res;
+}
 
 private loc dataLoc = baseLoc + "serialized/vvInfo";
 
@@ -374,11 +568,109 @@ public void writePatternStats(str pname, map[str s, PatternStats p] stats) {
 	writeBinaryValueFile(resultLoc + "pattern-<pname>.bin", stats);
 }
 
-public void extractFunctionInfo(System s) {
-	// For each declared function and method, get whether the params
-	// are marked as reference params
-	
-	// TODO: Also need to load the library, do the same for possible
-	// library calls; we should do something similar to the includes
-	// analysis and require libs to be given
+public map[str s, PatternStats p] readPatternStats(str pname) {
+	return readBinaryValueFile(#map[str s, PatternStats p], resultLoc + "pattern-<pname>.bin");
 }
+
+public PatternStats readPatternStatsFor(str pname, str s) {
+	return readPatternStats(pname)[s];
+}
+
+public set[loc] patternResolvedLocs(str pname, str s) {
+	pstats = readPatternStatsFor(pname, s);
+	return pstats.vvuses.resolvedLocs<0> + pstats.vvcalls.resolvedLocs<0> + pstats.vvmcalls.resolvedLocs<0> + pstats.vvnews.resolvedLocs<0> + pstats.vvprops.resolvedLocs<0> +
+		pstats.vvcconsts.resolvedLocs<0> + pstats.vvscalls.resolvedLocs<0> + pstats.vvstargets.resolvedLocs<0> + pstats.vvsprops.resolvedLocs<0> + pstats.vvsptargets.resolvedLocs<0>;
+		
+}
+private list[ParamInfo] plist2pilist(list[SummaryParam] plist) {
+	return [ paramInfo( (pi has paramName) ? pi.paramName : "", /Ref/ := getName(pi) ) | pi <- plist ];
+}
+
+data FMParamInfo = fmParamInfo(rel[str fname, list[ParamInfo] parameterInfo] functions, rel[str fname, list[ParamInfo] parameterInfo] methods);
+
+public FMParamInfo extractFunctionInfo(System s) {
+	// First, get back all the library functions and methods so we can add
+	// nodes in the call graph for those that are (or may be) used
+	fsum = loadFunctionSummaries();
+	msum = loadMethodSummaries();
+	
+	// Second, generate signatures for each of the scripts, so we know
+	// what functions and methods are available
+	// TODO: This does not handle varargs reference functions, should verify these don't occur in practice
+	map[loc,Signature] sysSignatures = ( l : getFileSignature(l,s[l],buildInfo=true) | l <- s );
+
+	rel[str fname, list[ParamInfo] parameterInfo] functions = 
+		{ < fn, pi > | /functionSig([_*,function(fn)], list[ParamInfo] pi) := sysSignatures } +
+		{ < fn, plist2pilist(plist) > | functionSummary([_*,function(fn)],plist,_,_,_,_) <- fsum };
+	rel[str mname, list[ParamInfo] parameterInfo] methods = 
+		{ < mn, pi > | /functionSig([_*,method(mn)], list[ParamInfo] pi) := sysSignatures } +
+		{ < mn, plist2pilist(plist) > | methodSummary([_*,function(fn)],_,plist,_,_,_,_) <- msum };
+		
+	return fmParamInfo(functions, methods);
+}
+
+public str patternResultsAsLatex(map[str s, PatternStats p] pstats, str pname, Corpus corpus) {
+							 
+	ci = loadCountsCSV();
+	
+	str headerLine() {
+		return "Product & Files & \\multicolumn{17}{c}{Resolved Variable Features, Pattern <pname>} \\\\
+		       '\\cmidrule{3-19}
+		       ' & & \\multicolumn{2}{c}{Variables} & \\phantom{a} & \\multicolumn{2}{c}{Function Calls} & \\phantom{a} & \\multicolumn{2}{c}{Method Calls} & \\phantom{a} & \\multicolumn{2}{c}{Property Fetches} & \\phantom{a} & \\multicolumn{2}{c}{Instantiations} & \\phantom{a} & \\multicolumn{2}{c}{All} \\\\
+		       '\\cmidrule{3-4} \\cmidrule{6-7} \\cmidrule{9-10} \\cmidrule{12-13} \\cmidrule{15-16} \\cmidrule{18-19}
+		       ' &  & Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses \\\\ \\midrule";
+	}
+	
+	str c(ResolveStats vv) = "\\numprint{<vv.resolved>} & \\numprint{<vv.total>}";
+	
+//data ResolveStats = resolveStats(int resolved, int total, rel[loc,AnalysisName] resolvedLocs);
+//
+//data PatternStats = patternStats(ResolveStats vvuses, ResolveStats vvcalls, ResolveStats vvmcalls, ResolveStats vvnews, ResolveStats vvprops,
+//								 ResolveStats vvcconsts, ResolveStats vvscalls, ResolveStats vvstargets, ResolveStats vvsprops, ResolveStats vvsptargets);
+	
+	int allResolved(str p) = pstats[p].vvuses.resolved + pstats[p].vvcalls.resolved + pstats[p].vvmcalls.resolved + pstats[p].vvnews.resolved + pstats[p].vvprops.resolved +
+		pstats[p].vvcconsts.resolved + pstats[p].vvscalls.resolved + pstats[p].vvstargets.resolved + pstats[p].vvsprops.resolved + pstats[p].vvsptargets.resolved;
+
+	int allUses(str p) = pstats[p].vvuses.total + pstats[p].vvcalls.total + pstats[p].vvmcalls.total + pstats[p].vvnews.total + pstats[p].vvprops.total +
+		pstats[p].vvcconsts.total + pstats[p].vvscalls.total + pstats[p].vvstargets.total + pstats[p].vvsprops.total + pstats[p].vvsptargets.total;
+		
+	str productLine(str p) {
+		< lineCount, fileCount > = getOneFrom(ci[p,corpus[p]]);
+		return "<p> & \\numprint{<fileCount>} & <c(pstats[p].vvuses)> && <c(pstats[p].vvcalls)> && <c(pstats[p].vvmcalls)> && <c(pstats[p].vvprops)> && <c(pstats[p].vvnews)> && \\numprint{<allResolved(p)>} & \\numprint{<allUses(p)>} \\\\";
+	}
+
+	res = "\\npaddmissingzero
+		  '\\npfourdigitsep
+		  '\\begin{table*}
+		  '\\centering
+		  '\\caption{PHP Variable Features Resolved By Pattern <pname>.\\label{table-var-pattern-<pname>}}
+		  '\\ra{1.0}
+		  '\\resizebox{\\textwidth}{!}{%
+		  '\\begin{tabular}{@{}lrrrcrrcrrcrrcrrcrr@{}} \\toprule 
+		  '<headerLine()> <for (p <- sort(toList(corpus<0>),bool(str s1,str s2) { return toUpperCase(s1)<toUpperCase(s2); })) {>
+		  '  <productLine(p)> <}>
+		  '\\bottomrule
+		  '\\end{tabular}
+		  '}
+		  '\\end{table*}
+		  '";
+	return res;
+}
+
+private loc cfgLoc = baseLoc + "serialized/vvCFGs";
+
+public void extractCFGs(Corpus corpus) {
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		vv = loadVVInfo(getBaseCorpus(), s);		
+		vvAll = collapseVVInfo(vv);
+		scriptLocs = { qr.l.top | qr <- vvAll };
+		map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
+		writeBinaryValueFile(cfgLoc+"<s>-<corpus[s]>.cfgmap", scriptCFGs, compression=false);
+	}
+}
+
+public map[loc,map[NamePath,CFG]] loadCFGs(Corpus corpus, str s) {
+	return readBinaryValueFile(#map[loc,map[NamePath,CFG]], cfgLoc+"<s>-<corpus[s]>.cfgmap");
+}
+
