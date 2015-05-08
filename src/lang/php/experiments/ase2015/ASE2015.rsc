@@ -18,7 +18,7 @@ import lang::php::analysis::cfg::BuildCFG;
 import lang::php::analysis::NamePaths;
 import lang::php::analysis::evaluators::AlgebraicSimplification;
 import lang::php::analysis::names::AnalysisNames;
-import IO;import lang::php::analysis::signatures::Summaries;
+import lang::php::analysis::signatures::Summaries;
 import lang::php::analysis::signatures::Signatures;
 
 import Set;
@@ -32,6 +32,7 @@ import Relation;
 import Map;
 import util::Maybe;
 import Traversal;
+import IO;
 
 @doc{The base corpus used in the ASE 2015 submission.}
 private Corpus ase15BaseCorpus = (
@@ -312,16 +313,17 @@ public bool addressTaken(Stmt s, str v) {
 	is not used as the target of an assignment). This also needs to occur in the
 	// context of the foreach that provides the variable.
 }
-public rel[loc,AnalysisName] patternOne(str system, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return patternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), fmOpt = fmOpt, ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] patternOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
 
-public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
-	fm = (just(someFM) := fmOpt) ? someFM : extractFunctionInfo(pt);
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
 	
 	// Collapse all the var features
 	vvAll = collapseVVInfo(vv);
@@ -417,29 +419,26 @@ public map[str s, PatternStats p] patternOne(Corpus corpus) {
 @doc{
 	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
 }
-public rel[loc,AnalysisName] patternTwo(str system, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return patternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), fmOpt = fmOpt, ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] patternTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
 rel[loc,Expr] getStandardAssignmentsFor(str varname, set[CFGNode] nodes) {
 	return { < e@at, e > | exprNode(e:assign(var(name(name(varname))),_),_) <- nodes };
 }
 
-public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[FMParamInfo] fmOpt = nothing(), Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
-	fm = (just(someFM) := fmOpt) ? someFM : extractFunctionInfo(pt);
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
 	
-	// Collapse all the var features
+	// Collapse all the var features into one set
 	vvAll = collapseVVInfo(vv);
 	
-	// Get back the script locations for all the uses
-	scriptLocs = { qr.l.top | qr <- vvAll };
-	//println("Found variable features in <size(scriptLocs)> files");
-	
-	// Generate control flow graphs for each script location
-	map[loc,map[NamePath,CFG]] scriptCFGs = loadCFGs(corpus, system);
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
 
 	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
 		rel[loc,AnalysisName] res = { };
@@ -447,8 +446,7 @@ public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[FMPar
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
 		//for (qr <- qrSet,  e := qr.e, hasVariableForName(e)) {
-			//println("Processing expression <pp(e)> at location <qr.l>");
-			CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
 			if (emptyCFG() := c) {
 				println("WARNING: No CFG found for <pp(e)> at <e@at>");
 			} else {
@@ -609,6 +607,24 @@ public FMParamInfo extractFunctionInfo(System s) {
 	return fmParamInfo(functions, methods);
 }
 
+private loc functionInfoLoc = baseLoc + "serialized/functionInfo";
+
+public void writeFunctionInfo(Corpus corpus, str s, FMParamInfo fp) {
+	writeBinaryValueFile(functionInfoLoc + "<s>-<corpus[s]>.finfo", fp);
+}
+
+public FMParamInfo readFunctionInfo(Corpus corpus, str s) {
+	return readBinaryValueFile(#FMParamInfo, functionInfoLoc + "<s>-<corpus[s]>.finfo");
+}
+
+public void extractFunctionInfo(Corpus corpus) {
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		fp = extractFunctionInfo(pt);
+		writeFunctionInfo(corpus, s, fp);
+	}
+}
+
 public str patternResultsAsLatex(map[str s, PatternStats p] pstats, str pname, Corpus corpus) {
 							 
 	ci = loadCountsCSV();
@@ -659,18 +675,55 @@ public str patternResultsAsLatex(map[str s, PatternStats p] pstats, str pname, C
 
 private loc cfgLoc = baseLoc + "serialized/vvCFGs";
 
+data CFGInfo = cfgInfo(loc forTopLevel, map[loc,loc] forContainers) | cfgInfoOnlyContainers(map[loc,loc] forContainers);
+
 public void extractCFGs(Corpus corpus) {
+	int uniqueIds = 1;
+	map[loc,CFGInfo] infoMap = ( );
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
 		vv = loadVVInfo(getBaseCorpus(), s);		
 		vvAll = collapseVVInfo(vv);
 		scriptLocs = { qr.l.top | qr <- vvAll };
-		map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
-		writeBinaryValueFile(cfgLoc+"<s>-<corpus[s]>.cfgmap", scriptCFGs, compression=false);
+		for (l <- scriptLocs) {
+			scriptCFGs = buildCFGs(pt[l], buildBasicBlocks=false);
+			ci = cfgInfoOnlyContainers(( ));
+			if ([global()] in scriptCFGs) {
+				ci = cfgInfo(cfgLoc + "cfg-<uniqueIds>.bin",( ));
+				uniqueIds = uniqueIds + 1;
+			}
+			for (np <- scriptCFGs) {
+				if ([global()] == np) {
+					writeBinaryValueFile(ci.forTopLevel, scriptCFGs[np]);
+				} else {
+					toWrite = cfgLoc + "cfg-<uniqueIds>.bin";				
+					uniqueIds = uniqueIds + 1;
+					writeBinaryValueFile(toWrite, scriptCFGs[np]);
+					ci.forContainers[scriptCFGs[np].at] = toWrite;
+				}
+			}
+			infoMap[l] = ci; 
+		}
+		writeBinaryValueFile(cfgLoc+"<s>-<corpus[s]>.cfgmap", infoMap);
 	}
 }
 
-public map[loc,map[NamePath,CFG]] loadCFGs(Corpus corpus, str s) {
-	return readBinaryValueFile(#map[loc,map[NamePath,CFG]], cfgLoc+"<s>-<corpus[s]>.cfgmap");
+public map[loc,CFGInfo] loadCFGMap(Corpus corpus, str s) {
+	return readBinaryValueFile(#map[loc,CFGInfo], cfgLoc+"<s>-<corpus[s]>.cfgmap");
 }
 
+public CFG loadCFG(loc l) {
+	return readBinaryValueFile(#CFG, l);
+}
+
+public loc findMapEntry(CFGInfo ci, loc toFind) {
+	for (l <- ci.forContainers) {
+		if (l.offset <= toFind.offset && toFind.offset <= (l.offset + l.length)) {
+			return ci.forContainers[l];
+		}
+	}
+	if (ci has forTopLevel) {
+		return ci.forTopLevel;
+	}
+	throw "No location to return for location to find <toFind>!";
+}
