@@ -167,6 +167,16 @@ public str getVariableName(staticCall(expr(var(name(name(str s)))),_,_)) = s;
 public str getVariableName(staticPropertyFetch(expr(var(name(name(str s)))),_)) = s;
 public default str getVariableName(Expr e) { throw "No variable name found"; }
 
+public Expr getVariablePart(var(expr(Expr e))) = e;
+public Expr getVariablePart(call(expr(Expr e),_)) = e;
+public Expr getVariablePart(methodCall(_,expr(Expr e),_)) = e;
+public Expr getVariablePart(new(expr(Expr e),_)) = e;
+public Expr getVariablePart(propertyFetch(_,expr(Expr e))) = e;
+public Expr getVariablePart(staticCall(_,expr(Expr e),_)) = e;
+public Expr getVariablePart(staticCall(expr(Expr e),_,_)) = e;
+public Expr getVariablePart(staticPropertyFetch(expr(Expr e),_)) = e;
+public default Expr getVariablePart(Expr e) { throw "No variable name found"; }
+
 public bool exprIsScalar(Expr e) {
 	e = algebraicSimplification(e);
 	return (scalar(s) := e && encapsed(_) !:= s);
@@ -183,6 +193,47 @@ public str getScalarString(Expr e) {
 		return s;
 	}
 	throw "No value";
+}
+
+public set[str] gatherAssignedStrings(CFG g, Expr e) {
+	return { getScalarString(e2) | exprNode(assign(e, e2),_) <- g.nodes, exprIsScalarString(e2) };
+}
+
+public bool ternaryHasStringResults(Expr e) {
+	if (ternary(_,someExpr(e2),e3) := e) {
+		e2res = (e2 is ternary) ? ternaryHasStringResults(e2) : (scalar(string(_)) := e2);
+		e3res = (e3 is ternary) ? ternaryHasStringResults(e3) : (scalar(string(_)) := e3);
+		return e2res && e3res;
+	}
+	return false;
+}
+
+public set[str] ternaryStringResults(Expr e) {
+	res = { };
+	if (e.ifBranch.expr is ternary) {
+		res = ternaryStringResults(e.ifBranch.expr);
+	} else {
+		res = { e.ifBranch.expr.scalarVal.strVal };
+	}
+	if (e.elseBranch is ternary) {
+		res = res + ternaryStringResults(e.elseBranch);
+	} else {
+		res = res + { e.elseBranch.scalarVal.strVal };
+	}
+	return res;
+}
+
+
+public set[str] gatherAssignedStrings2(CFG g, Expr e) {
+	set[str] res = { };
+	if (exprNode(assign(e, e2),_) <- g.nodes) {
+		e2 = algebraicSimplification(e2);
+		if (e2 is ternary) {
+			res = ternaryStringResults(e2);
+		}
+	}
+	
+	return res;
 }
 
 set[QueryResult] collapseVVInfo(VVInfo vv) {
@@ -213,10 +264,10 @@ public map[str s, PatternStats p] addPatternStats(map[str s, PatternStats p] p1,
 	return (s : addPatternStats(p1[s],p2[s]) | s <- p1 );
 }
 
-public bool hasDangerousUse(Stmt s, str v, FMParamInfo fm, set[loc] ignoreLocs = { }) {
+public bool hasDangerousUse(Stmt s, str v, FMParamInfo fm, set[loc] ignoreLocs = { }, bool ignoreNormalAssign=false) {
 	visit(s) {
 		case du:assign(var(name(name(v))),_) : {
-			if (du@at notin ignoreLocs) {
+			if (du@at notin ignoreLocs || ignoreNormalAssign) {
 				println("Dangerous use found at <du@at>: <pp(du)>");
 				return true;
 			}
@@ -705,9 +756,6 @@ public PatternStats patternFour(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
 		//for (qr <- qrSet,  e := qr.e, hasVariableForName(e)) {
-			if (/importImages/ := qr.l.path) {
-				println("Hit it");
-			}
 			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
 			if (emptyCFG() := c) {
 				println("WARNING: No CFG found for <pp(e)> at <e@at>");
@@ -796,6 +844,180 @@ public map[str s, PatternStats p] patternFour(Corpus corpus) {
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
 		res[s] = patternFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three"},s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternFive(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternFive(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternFive(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(qr.e)> at <qr.e@at>");
+			} else {
+				try {
+					vp = getVariablePart(qr.e);
+					if (propertyFetch(_,name(name(s))) := vp) {
+						if (definitePropertyAssignment(c, s, qr.e)) {
+							assigned = gatherAssignedStrings(c, vp);
+							res = res + { < qr.l, varName(as) > | as <- assigned };
+						}
+					} else if (var(name(name(s))) := vp) {
+						if (definiteVariableAssignment(c, s, qr.e)) {
+							assigned = gatherAssignedStrings(c, vp);
+							res = res + { < qr.l, varName(as) > | as <- assigned };
+						}
+					}
+				} catch _ : {
+					continue;
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternFive(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternFive(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four"},s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternSix(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternSix(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternSix(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(qr.e)> at <qr.e@at>");
+			} else {
+				try {
+					vp = getVariablePart(qr.e);
+					if (propertyFetch(_,name(name(s))) := vp) {
+						if (definitePropertyAssignment(c, s, qr.e)) {
+							assigned = gatherAssignedStrings2(c, vp);
+							res = res + { < qr.l, varName(as) > | as <- assigned };
+						}
+					} else if (var(name(name(s))) := vp) {
+						if (definiteVariableAssignment(c, s, qr.e)) {
+							assigned = gatherAssignedStrings2(c, vp);
+							res = res + { < qr.l, varName(as) > | as <- assigned };
+						}
+					}
+				} catch _ : {
+					continue;
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternSix(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternSix(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five"},s));
 	}
 	
 	return res;
@@ -946,8 +1168,8 @@ data CFGInfo = cfgInfo(loc forTopLevel, map[loc,loc] forContainers) | cfgInfoOnl
 
 public void extractCFGs(Corpus corpus) {
 	int uniqueIds = 1;
-	map[loc,CFGInfo] infoMap = ( );
 	for (s <- corpus) {
+		map[loc,CFGInfo] infoMap = ( );
 		pt = loadBinary(s, corpus[s]);
 		vv = loadVVInfo(getBaseCorpus(), s);		
 		vvAll = collapseVVInfo(vv);
@@ -1008,10 +1230,13 @@ public bool definiteVariableAssignment(CFG g, str v, Expr usedBy) {
 	ggraph = cfgAsGraph(g);
 	
 	bool assignedOnPath(CFGNode n) {
-		if (isExitNode(n)) {
-			return false;
-		}
+		// If we reach an exit node it doesn't matter, that means we have a path
+		// where we don't have a definition but we also don't have a use.
+		if (isExitNode(n)) return true;
+
+		// If we find a use of the expression this means we have the use before the def
 		if (exprNode(e,_) := n && e == usedBy && e@at == usedBy@at) return false;
+
 		if (exprNode(assign(var(name(name(v))),_),_) := n) return true;
 		toCheck = { gi | gi <- ggraph[n], gi notin checked };
 		checked = checked + toCheck;
@@ -1031,8 +1256,15 @@ public bool definitePropertyAssignment(CFG g, str v, Expr usedBy) {
 	ggraph = cfgAsGraph(g);
 	
 	bool assignedOnPath(CFGNode n) {
-		if (isExitNode(n)) return false;
-		if (exprNode(e,_) := n && e == usedBy && e@at == usedBy@at) return false;
+		// If we reach an exit node it doesn't matter, that means we have a path
+		// where we don't have a definition but we also don't have a use.
+		if (isExitNode(n)) return true;
+
+		// If we find a use of the expression this means we have the use before the def
+		if (exprNode(e,_) := n && e == usedBy && e@at == usedBy@at) {
+			return false;
+		}
+
 		if (exprNode(assign(propertyFetch(_,name(name(v))),_),_) := n) return true;
 		toCheck = { gi | gi <- ggraph[n], gi notin checked };
 		checked = checked + toCheck;
