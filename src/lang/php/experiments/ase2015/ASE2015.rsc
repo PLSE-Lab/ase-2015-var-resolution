@@ -1888,3 +1888,152 @@ public void generateLatex() {
 
 	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatex(pstats,"all",corpus));
 }
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternThirtyOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternThirtyOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public bool isUsefulCondExpression(Expr e, str v) {
+	if (binaryOperation(var(name(name(v))),scalar(string(s)),equal()) := e ||
+	    binaryOperation(var(name(name(v))),scalar(string(s)),identical()) := e ||
+	    binaryOperation(scalar(string(s)),var(name(name(v))),equal()) := e ||
+	    binaryOperation(scalar(string(s)),var(name(name(v))),identical()) := e) {
+	    return true;
+	} else if (binaryOperation(e1,e2,booleanOr()) := e) {
+		return isUsefulCondExpression(e1,v) && isUsefulCondExpression(e2,v);
+	}  else if (binaryOperation(e1,e2,logicalOr()) := e) {
+		return isUsefulCondExpression(e1,v) && isUsefulCondExpression(e2,v);
+	}
+	
+	return false;
+	    
+}
+
+public set[str] getUsefulCondExpressionValues(Expr e, str v) {
+	if (binaryOperation(var(name(name(v))),scalar(string(s)),equal()) := e ||
+	    binaryOperation(var(name(name(v))),scalar(string(s)),identical()) := e ||
+	    binaryOperation(scalar(string(s)),var(name(name(v))),equal()) := e ||
+	    binaryOperation(scalar(string(s)),var(name(name(v))),identical()) := e) {
+	    return { s };
+	} else if (binaryOperation(e1,e2,booleanOr()) := e) {
+		return getUsefulCondExpressionValues(e1,v) + getUsefulCondExpressionValues(e2,v);
+	}  else if (binaryOperation(e1,e2,logicalOr()) := e) {
+		return getUsefulCondExpressionValues(e1,v) + getUsefulCondExpressionValues(e2,v);
+	}
+	
+	return { };
+	    
+}
+
+public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
+			//println("Processing expression <pp(e)> at location <qr.l>");
+			//CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
+			//g = cfgAsGraph(c);
+			
+			// We have a variable feature use, so get the actual variable used to hold it
+			str v = getVariableName(e);
+			
+			// Find the node inside the system using a visit, that way we can also
+			// find the containing foreach
+			Script s = pt[qr.l.top];
+			list[node] conditionalParts = [ ];
+			visit(s) {
+				case Expr e2 : {
+					if ((e2@at)? && (e2@at == qr.l)) {
+						conditionalParts = [ ce | ce <- getTraversalContextNodes(), (ce is \if || ce is \elseIf) ];
+					} 
+				}
+			}
+			
+			if (!isEmpty(conditionalParts)) {
+				part = conditionalParts[0]; conditionalParts = conditionalParts[1..];
+				
+				if (\if(Expr cond, list[Stmt] body, list[ElseIf] elseIfs, OptionElse elseClause) := part) {
+					// If we are here, this means that the use is inside the body. See if the condition
+					// is helpful.
+					if (isUsefulCondExpression(cond,v)) {
+						//if (true in { hasDangerousUse(ci,v,fm) | ci <- body }) {
+						//	// This means the conditional this was found in also has dangerous uses of the name,
+						//	// so we should give up
+						//	println("Dangerous uses of <v> found in conditional, no match at <qr.l>");
+						//	return res;
+						//}
+						res = res + { < qr.l, varName(vi) > | vi <- getUsefulCondExpressionValues(cond, v) };
+					} else {
+						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+					}
+				} else if (elseIf(Expr cond, list[Stmt] body) := part) {
+					// If we are here, this means the use is inside the elseIf body. See if the condition
+					// is helpful
+					if (isUsefulCondExpression(cond,v)) {
+						//if (true in { hasDangerousUse(ci,v,fm) | ci <- body }) {
+						//	// This means the conditional this was found in also has dangerous uses of the name,
+						//	// so we should give up
+						//	println("Dangerous uses of <v> found in conditional, no match at <qr.l>");
+						//	return res;
+						//}
+						res = res + { < qr.l, varName(vi) > | vi <- getUsefulCondExpressionValues(cond, v) };
+					} else {
+						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternThirtyOne(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternThirtyOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight","twentyOne","twentyTwo"},s));
+	}
+	
+	return res;
+}
