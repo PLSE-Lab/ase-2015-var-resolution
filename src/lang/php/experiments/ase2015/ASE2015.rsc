@@ -1874,6 +1874,9 @@ public void generateLatex() {
 	writeFile(paperLoc+"vv-pattern-twenty-one.tex", patternResultsAsLatex(readPatternStats("twentyone"), "twentyone", corpus));	
 	writeFile(paperLoc+"vv-pattern-twenty-two.tex", patternResultsAsLatex(readPatternStats("twentytwo"), "twentytwo", corpus));
 	
+	writeFile(paperLoc+"vv-pattern-thirty-one.tex", patternResultsAsLatex(readPatternStats("thirtyone"), "thirtyone", corpus));
+	writeFile(paperLoc+"vv-pattern-thirty-two.tex", patternResultsAsLatex(readPatternStats("thirtytwo"), "thirtytwo", corpus));
+
 	pstats = readPatternStats("one");
 	pstats = addPatternStats(pstats,readPatternStats("two"));	
 	pstats = addPatternStats(pstats,readPatternStats("three"));	
@@ -1886,14 +1889,10 @@ public void generateLatex() {
 	pstats = addPatternStats(pstats,readPatternStats("twentyone"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
 
-	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatex(pstats,"all",corpus));
-}
+	pstats = addPatternStats(pstats,readPatternStats("thirtyone"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtytwo"));	
 
-@doc{
-	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
-}
-public rel[loc,AnalysisName] patternThirtyOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return patternThirtyOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatex(pstats,"all",corpus));
 }
 
 public bool isUsefulCondExpression(Expr e, str v) {
@@ -1926,6 +1925,13 @@ public set[str] getUsefulCondExpressionValues(Expr e, str v) {
 	
 	return { };
 	    
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternThirtyOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternThirtyOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
 public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
@@ -1972,6 +1978,7 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 					// If we are here, this means that the use is inside the body. See if the condition
 					// is helpful.
 					if (isUsefulCondExpression(cond,v)) {
+						// TODO: See if we need this, not sure why I commented this out...
 						//if (true in { hasDangerousUse(ci,v,fm) | ci <- body }) {
 						//	// This means the conditional this was found in also has dangerous uses of the name,
 						//	// so we should give up
@@ -1986,6 +1993,7 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 					// If we are here, this means the use is inside the elseIf body. See if the condition
 					// is helpful
 					if (isUsefulCondExpression(cond,v)) {
+						// TODO: See if we need this, not sure why I commented this out...
 						//if (true in { hasDangerousUse(ci,v,fm) | ci <- body }) {
 						//	// This means the conditional this was found in also has dangerous uses of the name,
 						//	// so we should give up
@@ -2036,4 +2044,137 @@ public map[str s, PatternStats p] patternThirtyOne(Corpus corpus) {
 	}
 	
 	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternThirtyTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternThirtyTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternThirtyTwo(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(qr.e)> at <qr.e@at>");
+			} else {
+				// We have a variable feature use, so get the actual variable used to hold it
+				str v = getVariableName(e);
+				
+				// Find the node inside the system using a visit, that way we can also
+				// find the containing foreach
+				Script s = pt[qr.l.top];
+				list[Case] cases = [ ];
+				list[Stmt] switches = [ ];
+				
+				visit(s) {
+					case Expr e2 : {
+						if ((e2@at)? && (e2@at == qr.l)) {
+							fullPath = getTraversalContextNodes();
+							caseFound = false;
+							for (i <- index(fullPath)) {
+								if (!caseFound && Case cf:\case(_,_) := fullPath[i]) {
+									cases = cases + cf;
+									caseFound = true;
+								} else if (caseFound && Stmt sf:\switch(_,_) := fullPath[i]) {
+									switches = switches + sf;
+									break;
+								}
+							}
+						} 
+					}
+				}
+				
+				if (!isEmpty(cases) && !isEmpty(switches)) {
+					containingCase = cases[0];
+					containingSwitch = switches[0];
+					
+					// Is this switch useful?
+					if (var(name(name(v))) := containingSwitch.cond) {
+						possibleCases = reachableCases(c, qr.e, containingSwitch.cases);
+						caseValues = { sval | \case(someExpr(scalar(string(sval))),_) <- possibleCases };
+						res = res + { < qr.l, varName(cv) > | cv <- caseValues };
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternThirtyTwo(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternThirtyTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight","twentyOne","twentyTwo"},s));
+	}
+	
+	return res;
+}
+
+public set[Case] reachableCases(CFG g, Expr e, list[Case] cs) {
+	ggraph = cfgAsGraph(g);
+	flipped = invert(ggraph);
+
+	// Get the expression node(s) that correspond to the starting expression
+	startNodes = { gi | gi <- carrier(ggraph), exprNode(ge, _) := gi, (ge@at)?, ge@at == e@at };
+	
+	// Get just the case expressions on the cases present in this switch/case
+	searchExprs = { < ce, ce@at, c > | c:\case(someExpr(ce),_) <- cs };
+	
+	// Get just the locations of these case expressions
+	searchExprLocs = searchExprs<1>;
+	
+	// Get the CFG nodes that correspond to the case expression nodes
+	searchNodes = { gi | gi <- carrier(ggraph), exprNode(ge, _) := gi, (ge@at)?, ge@at in searchExprLocs };
+
+	// Get just the subset of these nodes that are actually reachable from the start nodes if we go backwards
+	reachableCaseExprNodes = (flipped*)[startNodes] & searchNodes;
+	reachableCaseExprNodeLocs = { rn.expr@at | rn <- reachableCaseExprNodes };
+	
+	// Get the cases associated with the reachable case expression nodes
+	return { c | < _, l, c > <- searchExprs, l in reachableCaseExprNodeLocs };
 }
