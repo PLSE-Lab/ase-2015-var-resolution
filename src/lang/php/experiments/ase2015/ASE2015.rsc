@@ -156,6 +156,8 @@ public bool hasVariableForName(propertyFetch(_,expr(var(name(name(str s)))))) = 
 public bool hasVariableForName(staticCall(_,expr(var(name(name(str s)))),_)) = true; // Variable static call
 public bool hasVariableForName(staticCall(expr(var(name(name(str s)))),_,_)) = true; // Variable static target
 public bool hasVariableForName(staticPropertyFetch(expr(var(name(name(str s)))),_)) = true;
+public bool hasVariableForName(staticPropertyFetch(_,expr(var(name(name(str s)))))) = true;
+public bool hasVariableForName(fetchClassConst(expr(var(name(name(str s)))),_)) = true;
 public default bool hasVariableForName(Expr e) = false;
 
 public str getVariableName(var(expr(var(name(name(str s)))))) = s;
@@ -166,7 +168,12 @@ public str getVariableName(propertyFetch(_,expr(var(name(name(str s)))))) = s;
 public str getVariableName(staticCall(_,expr(var(name(name(str s)))),_)) = s;
 public str getVariableName(staticCall(expr(var(name(name(str s)))),_,_)) = s;
 public str getVariableName(staticPropertyFetch(expr(var(name(name(str s)))),_)) = s;
-public default str getVariableName(Expr e) { throw "No variable name found"; }
+public str getVariableName(staticPropertyFetch(_,expr(var(name(name(str s)))))) = s;
+public str getVariableName(fetchClassConst(expr(var(name(name(str s)))),_)) = s;
+public default str getVariableName(Expr e) { 
+	println("Got it!");
+	throw "No variable name found"; 
+}
 
 public Expr getVariablePart(var(expr(Expr e))) = e;
 public Expr getVariablePart(call(expr(Expr e),_)) = e;
@@ -176,7 +183,12 @@ public Expr getVariablePart(propertyFetch(_,expr(Expr e))) = e;
 public Expr getVariablePart(staticCall(_,expr(Expr e),_)) = e;
 public Expr getVariablePart(staticCall(expr(Expr e),_,_)) = e;
 public Expr getVariablePart(staticPropertyFetch(expr(Expr e),_)) = e;
-public default Expr getVariablePart(Expr e) { throw "No variable name found"; }
+public Expr getVariablePart(staticPropertyFetch(_,expr(Expr e))) = e;
+public Expr getVariablePart(fetchClassConst(expr(Expr e),_)) = e;
+public default Expr getVariablePart(Expr e) { 
+	println("Got it!");
+	throw "No variable name found"; 
+}
 
 public bool exprIsScalar(Expr e) {
 	e = algebraicSimplification(e);
@@ -394,7 +406,7 @@ public bool addressTaken(Stmt s, str v) {
 	in a way where it could be modified (it is not passed to a function or method
 	as a reference parameter, it is not reference assigned to another variable, it
 	is not used as the target of an assignment). This also needs to occur in the
-	// context of the foreach that provides the variable.
+	context of the foreach that provides the variable.
 }
 public rel[loc,AnalysisName] patternOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -623,17 +635,8 @@ public map[str s, PatternStats p] patternTwo(Corpus corpus) {
 
 
 @doc{
-	Resolve variable definitions for Pattern One. Pattern one is the following:
-	
-	1. A foreach loop is defined that works directly over a literal array
-	2. Each element of this array is assigned into the foreach variable
-	3. This foreach variable is used directly as the name of the variable being accessed
-	
-	We can resolve this under the restriction that the foreach variable is not used
-	in a way where it could be modified (it is not passed to a function or method
-	as a reference parameter, it is not reference assigned to another variable, it
-	is not used as the target of an assignment). This also needs to occur in the
-	// context of the foreach that provides the variable.
+	Resolve variable definitions for Pattern Three. Pattern three is like pattern one, but focuses on the key assigned
+	in the foreach, not the value.
 }
 public rel[loc,AnalysisName] patternThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -739,7 +742,7 @@ public map[str s, PatternStats p] patternThree(Corpus corpus) {
 }
 
 @doc{
-	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+	Resolve variable definitions for Pattern Four. Pattern four is like pattern two, but using the key instead of the value.
 }
 public rel[loc,AnalysisName] patternFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -1365,6 +1368,123 @@ public map[str s, PatternStats p] patternEight(Corpus corpus) {
 }
 
 @doc{
+	Resolve variable definitions for Pattern One. Pattern one is the following:
+	
+	1. A foreach loop is defined that works directly over a literal array
+	2. Each element of this array is assigned into the foreach variable
+	3. This foreach variable is used directly as the name of the variable being accessed
+	
+	We can resolve this under the restriction that the foreach variable is not used
+	in a way where it could be modified (it is not passed to a function or method
+	as a reference parameter, it is not reference assigned to another variable, it
+	is not used as the target of an assignment). This also needs to occur in the
+	context of the foreach that provides the variable.
+}
+public rel[loc,AnalysisName] patternNine(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternNine(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+
+public PatternStats patternNine(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features
+	vvAll = collapseVVInfo(vv);
+	
+	// Get back the script locations for all the uses
+	scriptLocs = { qr.l.top | qr <- vvAll };
+	//println("Found variable features in <size(scriptLocs)> files");
+	
+	// Generate control flow graphs for each script location
+	//map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			//println("Processing expression <pp(e)> at location <qr.l>");
+			//CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
+			//g = cfgAsGraph(c);
+			
+			// We have a variable feature use, so get the actual variable used to hold it
+			str v = getSingleVar(getVariablePart(e));
+			
+			// Find the node inside the system using a visit, that way we can also
+			// find the containing foreach
+			Script s = pt[qr.l.top];
+			list[Stmt] foreaches = [];
+			visit(s) {
+				case Expr e2 : {
+					if ((e2@at)? && (e2@at == qr.l)) {
+						foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,_,_,var(name(name(v))),_) := cn ];
+					} 
+				}
+			}
+			
+			if (!isEmpty(foreaches)) {
+				fe = foreaches[0];
+				if (fe.byRef) {
+					println("Cannot use foreach, it creates an alias, <fe@at>");
+				} else {
+					aexp = fe.arrayExpr;
+					if (array(aelist) := aexp && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
+						//if (hasDangerousUse(fe, v, fm)) {
+						//	println("Cannot use foreach, it has a potentially dangerous use, <fe@at>");
+						//} else {
+							varExprs = replaceInExpr(getVariablePart(e), v, { aeItem.val | aeItem <- aelist }); 
+							res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+						//}
+					} else {
+						println("Array expression <pp(aexp)> does not match pattern 9, <qr.l>");
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternNine(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternNine(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight"},s));
+	}
+	
+	return res;
+}
+
+@doc{
 	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
 }
 public rel[loc,AnalysisName] patternTwentyOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
@@ -1851,11 +1971,20 @@ public void runPatterns() {
 	println("Running Pattern Eight");
 	writePatternStats("eight", patternEight(corpus));
 
+	println("Running Pattern Nine");
+	writePatternStats("nine", patternNine(corpus));
+
 	println("Running Pattern Twenty One");
 	writePatternStats("twentyone", patternTwentyOne(corpus));
 
 	println("Running Pattern Twenty Two");
 	writePatternStats("twentytwo", patternTwentyTwo(corpus));
+
+	println("Running Pattern Thirty One");
+	writePatternStats("thirtyone", patternThirtyOne(corpus));
+
+	println("Running Pattern Thirty Two");
+	writePatternStats("thirtytwo", patternThirtyTwo(corpus));
 }
 
 public void generateLatex() {
@@ -1870,6 +1999,7 @@ public void generateLatex() {
 	writeFile(paperLoc+"vv-pattern-six.tex", patternResultsAsLatex(readPatternStats("six"), "six", corpus));	
 	writeFile(paperLoc+"vv-pattern-seven.tex", patternResultsAsLatex(readPatternStats("seven"), "seven", corpus));	
 	writeFile(paperLoc+"vv-pattern-eight.tex", patternResultsAsLatex(readPatternStats("eight"), "eight", corpus));	
+	writeFile(paperLoc+"vv-pattern-nine.tex", patternResultsAsLatex(readPatternStats("nine"), "nine", corpus));	
 
 	writeFile(paperLoc+"vv-pattern-twenty-one.tex", patternResultsAsLatex(readPatternStats("twentyone"), "twentyone", corpus));	
 	writeFile(paperLoc+"vv-pattern-twenty-two.tex", patternResultsAsLatex(readPatternStats("twentytwo"), "twentytwo", corpus));
@@ -1885,6 +2015,7 @@ public void generateLatex() {
 	pstats = addPatternStats(pstats,readPatternStats("six"));	
 	pstats = addPatternStats(pstats,readPatternStats("seven"));	
 	pstats = addPatternStats(pstats,readPatternStats("eight"));	
+	pstats = addPatternStats(pstats,readPatternStats("nine"));	
 
 	pstats = addPatternStats(pstats,readPatternStats("twentyone"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
@@ -1955,7 +2086,9 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 			//println("Processing expression <pp(e)> at location <qr.l>");
 			//CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
 			//g = cfgAsGraph(c);
-			
+			if (/ucp_pm_compose/ := qr.l.path) {
+				println("Found it!");
+			}
 			// We have a variable feature use, so get the actual variable used to hold it
 			str v = getVariableName(e);
 			
