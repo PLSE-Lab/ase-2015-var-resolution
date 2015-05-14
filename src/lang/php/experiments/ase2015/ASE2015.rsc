@@ -3089,18 +3089,28 @@ public void generateLatex() {
 	pstats = addPatternStats(pstats,readPatternStats("thirteen"));	
 	pstats = addPatternStats(pstats,readPatternStats("fourteen"));	
 
-	pstats = addPatternStats(pstats,readPatternStats("twentyone"));	
+	pstatsLoops = pstats;
+	writeFile(paperLoc+"vv-pattern-loops.tex", patternResultsAsLatex(pstatsLoops,"loops",corpus));
+	
+	pstats = readPatternStats("twentyone");	
 	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentythree"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentyfour"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
 
-	pstats = addPatternStats(pstats,readPatternStats("thirtyone"));	
+	pstatsAssignments = pstats;
+	writeFile(paperLoc+"vv-pattern-assignments.tex", patternResultsAsLatex(pstatsAssignments,"assignments",corpus));
+	
+	pstats = readPatternStats("thirtyone");	
 	pstats = addPatternStats(pstats,readPatternStats("thirtytwo"));	
 	pstats = addPatternStats(pstats,readPatternStats("thirtythree"));	
 	pstats = addPatternStats(pstats,readPatternStats("thirtyfour"));	
 
-	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatex(pstats,"all",corpus));
+	pstatsFlow = pstats;
+	writeFile(paperLoc+"vv-pattern-flow.tex", patternResultsAsLatex(pstatsFlow,"flow",corpus));
+	
+	pstatsAll = addPatternStats(pstatsFlow, addPatternStats(pstatsAssignments, pstatsLoops));
+	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatex(pstatsAll,"all",corpus));
 }
 
 public bool isUsefulCondExpression(Expr e, str v) {
