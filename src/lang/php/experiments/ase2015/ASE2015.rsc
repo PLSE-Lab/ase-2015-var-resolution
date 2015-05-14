@@ -325,11 +325,12 @@ set[QueryResult] collapseVVInfo(VVInfo vv) {
 		vv.vvstargets<2> + vv.vvsprops<2> + vv.vvsptargets<2>);
 }
 
-data ResolveStats = resolveStats(int resolved, int total, rel[loc,AnalysisName] resolvedLocs);
+data ResolveStats = resolveStats(int resolved, rel[loc,AnalysisName] resolvedLocs, set[loc] unresolvedLocs);
 
 public ResolveStats addResolveStats(ResolveStats r1, ResolveStats r2) {
 	r1.resolved = r1.resolved + r2.resolved;
 	r1.resolvedLocs = r1.resolvedLocs + r2.resolvedLocs;
+	r1.unresolvedLocs = r1.unresolvedLocs + r2.unresolvedLocs;
 	return r1;
 }
 
@@ -495,8 +496,8 @@ public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 	// Generate control flow graphs for each script location
 	//map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -523,46 +524,49 @@ public PatternStats patternOne(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 				fe = foreaches[0];
 				if (fe.byRef) {
 					println("Cannot use foreach, it creates an alias, <fe@at>");
+					unres = unres + qr.l;
 				} else {
 					aexp = fe.arrayExpr;
 					if (array(aelist) := aexp && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
 						if (hasDangerousUse(fe, v, fm)) {
 							println("Cannot use foreach, it has a potentially dangerous use, <fe@at>");
+							unres = unres + qr.l;
 						} else {
 							res = res + { < qr.l, varName(getScalarString(aeItem.val)) > | aeItem <- aelist };
 						}
 					} else {
 						println("Array expression <pp(aexp)> does not match pattern 1, <qr.l>");
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternOne(Corpus corpus) {
@@ -613,14 +617,11 @@ public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
-			if (/functions_privmsgs/ := qr.l.path) {
-				println("Found it!");
-			}
 			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
 			if (emptyCFG() := c) {
 				println("WARNING: No CFG found for <pp(e)> at <e@at>");
@@ -646,6 +647,7 @@ public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 					fe = foreaches[0];
 					if (fe.byRef) {
 						println("Cannot use foreach, it creates an alias, <fe@at>");
+						unres = unres + qr.l;
 					} else {
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
@@ -657,50 +659,55 @@ public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 								if (array(aelist) := assignExpr.assignExpr && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
 									if (hasDangerousUse(fe, v, fm, ignoreLocs=assignLocs)) {
 										println("Cannot use foreach, it has a potentially dangerous use");
+										unres = unres + qr.l;
 									} else {
 										res = res + { < qr.l, varName(getScalarString(aeItem.val)) > | aeItem <- aelist };
 									}
 								} else {
 									println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 2, <qr.l>");
+									unres = unres + qr.l;
 								}
 							} else if (isEmpty(assignments<1>)) {
 								println("No local assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							} else {
 								println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							}							
 						} else {
 							println("Array expression in foreach <pp(aexp)> does not match pattern 2, <qr.l>");
+							unres = unres + qr.l;
 						}
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTwo(Corpus corpus) {
@@ -745,8 +752,8 @@ public PatternStats patternThree(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 	// Generate control flow graphs for each script location
 	//map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -773,46 +780,49 @@ public PatternStats patternThree(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 				fe = foreaches[0];
 				if (fe.byRef) {
 					println("Cannot use foreach, it creates an alias, <fe@at>");
+					unres = unres + qr.l;
 				} else {
 					aexp = fe.arrayExpr;
 					if (array(aelist) := aexp && false notin { aeItem.key is someExpr | aeItem <- aelist } && false notin { exprIsScalarString(aeItem.key.expr) | aeItem <- aelist }) {
 						if (hasDangerousUse(fe, v, fm)) {
 							println("Cannot use foreach, it has a potentially dangerous use, <fe@at>");
+							unres = unres + qr.l;
 						} else {
 							res = res + { < qr.l, varName(getScalarString(aeItem.key.expr)) > | aeItem <- aelist };
 						}
 					} else {
 						println("Array expression <pp(aexp)> does not match pattern 3, <qr.l>");
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternThree(Corpus corpus) {
@@ -850,8 +860,8 @@ public PatternStats patternFour(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -880,6 +890,7 @@ public PatternStats patternFour(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 					fe = foreaches[0];
 					if (fe.byRef) {
 						println("Cannot use foreach, it creates an alias, <fe@at>");
+						unres = unres + qr.l;
 					} else {
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
@@ -891,50 +902,55 @@ public PatternStats patternFour(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 								if (array(aelist) := assignExpr.assignExpr && false notin { aeItem.key is someExpr | aeItem <- aelist } && false notin { exprIsScalarString(aeItem.key.expr) | aeItem <- aelist }) {			
 									if (hasDangerousUse(fe, v, fm, ignoreLocs=assignLocs)) {
 										println("Cannot use foreach, it has a potentially dangerous use");
+										unres = unres + qr.l;
 									} else {
 										res = res + { < qr.l, varName(getScalarString(aeItem.key.expr)) > | aeItem <- aelist };
 									}
 								} else {
 									println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 4, <qr.l>");
+									unres = unres + qr.l;
 								}
 							} else if (isEmpty(assignments<1>)) {
 								println("No local assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							} else {
 								println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							}							
 						} else {
 							println("Array expression in foreach <pp(aexp)> does not match pattern 4, <qr.l>");
+							unres = unres + qr.l;
 						}
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternFour(Corpus corpus) {
@@ -973,8 +989,8 @@ public PatternStats patternFive(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -1015,17 +1031,20 @@ public PatternStats patternFive(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 						fe = foreaches[0];
 						if (fe.byRef) {
 							println("Cannot use foreach, it creates an alias, <fe@at>");
+							unres = unres + qr.l;
 						} else {
 							aexp = fe.arrayExpr;
 							if (array(aelist) := aexp && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
 								if (hasDangerousUse(fe, v, fm)) {
 									println("Cannot use foreach, it has a potentially dangerous use");
+									unres = unres + qr.l;
 								} else {
 									varExprs = replaceInExpr(avAssignExpr.assignExpr, v, { aeItem.val | aeItem <- aelist }); 
 									res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
 								}
 							} else {
 								println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 7, <qr.l>");
+								unres = unres + qr.l;
 							}
 						}
 					}
@@ -1033,31 +1052,31 @@ public PatternStats patternFive(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternFive(Corpus corpus) {
@@ -1096,8 +1115,8 @@ public PatternStats patternSix(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -1138,6 +1157,7 @@ public PatternStats patternSix(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 						fe = foreaches[0];
 						if (fe.byRef) {
 							println("Cannot use foreach, it creates an alias, <fe@at>");
+							unres = unres + qr.l;
 						} else {
 							aexp = fe.arrayExpr;
 							if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
@@ -1149,20 +1169,25 @@ public PatternStats patternSix(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 									if (array(aelist) := assignExpr.assignExpr && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
 										if (hasDangerousUse(fe, v, fm, ignoreLocs=assignLocs)) {
 											println("Cannot use foreach, it has a potentially dangerous use");
+											unres = unres + qr.l;
 										} else {
 											varExprs = replaceInExpr(avAssignExpr.assignExpr, v, { aeItem.val | aeItem <- aelist }); 
 											res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
 										}
 									} else {
 										println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 8, <qr.l>");
+										unres = unres + qr.l;
 									}
 								} else if (isEmpty(assignments<1>)) {
 									println("No local assignments, cannot use variable <aname>, <qr.l>");
+									unres = unres + qr.l;
 								} else {
 									println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+									unres = unres + qr.l;
 								}							
 							} else {
 								println("Array expression in foreach <pp(aexp)> does not match pattern 8, <qr.l>");
+								unres = unres + qr.l;
 							}
 						}
 					}
@@ -1170,31 +1195,31 @@ public PatternStats patternSix(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternSix(Corpus corpus) {
@@ -1234,8 +1259,8 @@ public PatternStats patternSeven(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -1276,17 +1301,20 @@ public PatternStats patternSeven(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 						fe = foreaches[0];
 						if (fe.byRef) {
 							println("Cannot use foreach, it creates an alias, <fe@at>");
+							unres = unres + qr.l;
 						} else {
 							aexp = fe.arrayExpr;
 							if (array(aelist) := aexp && false notin { aeItem.key is someExpr | aeItem <- aelist } && false notin { exprIsScalarString(aeItem.key.expr) | aeItem <- aelist }) {
 								if (hasDangerousUse(fe, v, fm)) {
 									println("Cannot use foreach, it has a potentially dangerous use");
+									unres = unres + qr.l;
 								} else {
 									varExprs = replaceInExpr(avAssignExpr.assignExpr, v, { aeItem.key.expr | aeItem <- aelist }); 
 									res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
 								}
 							} else {
 								println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 7, <qr.l>");
+								unres = unres + qr.l;
 							}
 						}
 					}
@@ -1294,31 +1322,31 @@ public PatternStats patternSeven(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternSeven(Corpus corpus) {
@@ -1357,8 +1385,8 @@ public PatternStats patternEight(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -1399,6 +1427,7 @@ public PatternStats patternEight(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 						fe = foreaches[0];
 						if (fe.byRef) {
 							println("Cannot use foreach, it creates an alias, <fe@at>");
+							unres = unres + qr.l;
 						} else {
 							aexp = fe.arrayExpr;
 							if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
@@ -1410,20 +1439,25 @@ public PatternStats patternEight(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 									if (array(aelist) := assignExpr.assignExpr && false notin { aeItem.key is someExpr | aeItem <- aelist } && false notin { exprIsScalarString(aeItem.key.expr) | aeItem <- aelist }) {
 										if (hasDangerousUse(fe, v, fm, ignoreLocs=assignLocs)) {
 											println("Cannot use foreach, it has a potentially dangerous use");
+											unres = unres + qr.l;
 										} else {
 											varExprs = replaceInExpr(avAssignExpr.assignExpr, v, { aeItem.key.expr | aeItem <- aelist }); 
 											res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
 										}
 									} else {
 										println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 10, <qr.l>");
+										unres = unres + qr.l;
 									}
 								} else if (isEmpty(assignments<1>)) {
 									println("No local assignments, cannot use variable <aname>, <qr.l>");
+									unres = unres + qr.l;
 								} else {
 									println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+									unres = unres + qr.l;
 								}							
 							} else {
 								println("Array expression in foreach <pp(aexp)> does not match pattern 10, <qr.l>");
+								unres = unres + qr.l;
 							}
 						}
 					}
@@ -1431,31 +1465,31 @@ public PatternStats patternEight(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternEight(Corpus corpus) {
@@ -1500,8 +1534,8 @@ public PatternStats patternNine(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 	// Generate control flow graphs for each script location
 	//map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -1528,6 +1562,7 @@ public PatternStats patternNine(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 				fe = foreaches[0];
 				if (fe.byRef) {
 					println("Cannot use foreach, it creates an alias, <fe@at>");
+					unres = unres + qr.l;
 				} else {
 					aexp = fe.arrayExpr;
 					if (array(aelist) := aexp && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
@@ -1539,36 +1574,37 @@ public PatternStats patternNine(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 						//}
 					} else {
 						println("Array expression <pp(aexp)> does not match pattern 9, <qr.l>");
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternNine(Corpus corpus) {
@@ -1608,8 +1644,8 @@ public PatternStats patternTen(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -1638,6 +1674,7 @@ public PatternStats patternTen(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 					fe = foreaches[0];
 					if (fe.byRef) {
 						println("Cannot use foreach, it creates an alias, <fe@at>");
+						unres = unres + qr.l;
 					} else {
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
@@ -1655,45 +1692,49 @@ public PatternStats patternTen(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 									//}
 								} else {
 									println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 10, <qr.l>");
+									unres = unres + qr.l;
 								}
 							} else if (isEmpty(assignments<1>)) {
 								println("No local assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							} else {
 								println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							}							
 						} else {
 							println("Array expression in foreach <pp(aexp)> does not match pattern 10, <qr.l>");
+							unres = unres + qr.l;
 						}
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTen(Corpus corpus) {
@@ -1739,8 +1780,8 @@ public PatternStats patternEleven(Corpus corpus, str system, VVInfo vv, Maybe[Sy
 	// Generate control flow graphs for each script location
 	//map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -1767,6 +1808,7 @@ public PatternStats patternEleven(Corpus corpus, str system, VVInfo vv, Maybe[Sy
 				fe = foreaches[0];
 				if (fe.byRef) {
 					println("Cannot use foreach, it creates an alias, <fe@at>");
+					unres = unres + qr.l;
 				} else {
 					aexp = fe.arrayExpr;
 					if (array(aelist) := aexp && false notin { aeItem.key is someExpr | aeItem <- aelist } && false notin { exprIsScalarString(aeItem.key.expr) | aeItem <- aelist }) {
@@ -1778,36 +1820,37 @@ public PatternStats patternEleven(Corpus corpus, str system, VVInfo vv, Maybe[Sy
 						//}
 					} else {
 						println("Array expression <pp(aexp)> does not match pattern 11, <qr.l>");
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternEleven(Corpus corpus) {
@@ -1847,8 +1890,8 @@ public PatternStats patternTwelve(Corpus corpus, str system, VVInfo vv, Maybe[Sy
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -1877,6 +1920,7 @@ public PatternStats patternTwelve(Corpus corpus, str system, VVInfo vv, Maybe[Sy
 					fe = foreaches[0];
 					if (fe.byRef) {
 						println("Cannot use foreach, it creates an alias, <fe@at>");
+						unres = unres + qr.l;
 					} else {
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
@@ -1894,45 +1938,49 @@ public PatternStats patternTwelve(Corpus corpus, str system, VVInfo vv, Maybe[Sy
 									//}
 								} else {
 									println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 12, <qr.l>");
+									unres = unres + qr.l;
 								}
 							} else if (isEmpty(assignments<1>)) {
 								println("No local assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							} else {
 								println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+								unres = unres + qr.l;
 							}							
 						} else {
 							println("Array expression in foreach <pp(aexp)> does not match pattern 12, <qr.l>");
+							unres = unres + qr.l;
 						}
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTwelve(Corpus corpus) {
@@ -1976,8 +2024,8 @@ public PatternStats patternThirteen(Corpus corpus, str system, VVInfo vv, Maybe[
 	// Collapse all the var features
 	vvAll = collapseVVInfo(vv);
 	
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -2003,37 +2051,42 @@ public PatternStats patternThirteen(Corpus corpus, str system, VVInfo vv, Maybe[
 				//if (hasDangerousUse(fe, v, fm, ignoreLocs = {avAssignExpr@at})) {
 				//	println("Cannot use for-initialized variable, it has a potentially dangerous use, <fe@at>");
 				//} else {
-					varExprs = replaceInExpr(getVariablePart(e), v, { scalar(string("<rnum>")) | rnum <- forRange }); 
-					res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+					varExprs = replaceInExpr(getVariablePart(e), v, { scalar(string("<rnum>")) | rnum <- forRange });
+					toAdd = { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+					if (size(toAdd) > 0) { 
+						res = res + toAdd;
+					} else {
+						unres = unres + qr.l;
+					}
 				//}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternThirteen(Corpus corpus) {
@@ -2080,8 +2133,8 @@ public PatternStats patternFourteen(Corpus corpus, str system, VVInfo vv, Maybe[
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -2124,39 +2177,44 @@ public PatternStats patternFourteen(Corpus corpus, str system, VVInfo vv, Maybe[
 						//if (hasDangerousUse(fe, v, fm, ignoreLocs = {avAssignExpr@at})) {
 						//	println("Cannot use for-initialized variable, it has a potentially dangerous use, <fe@at>");
 						//} else {
-							varExprs = replaceInExpr(avAssignExpr.assignExpr, v, { scalar(string("<rnum>")) | rnum <- forRange }); 
-							res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+							varExprs = replaceInExpr(avAssignExpr.assignExpr, v, { scalar(string("<rnum>")) | rnum <- forRange });
+							toAdd = { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+							if (size(toAdd) > 0) {
+								res = res + toAdd;
+							} else {
+								unres = unres + qr.l;
+							}
 						//}
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternFourteen(Corpus corpus) {
@@ -2192,8 +2250,8 @@ public PatternStats patternTwentyOne(Corpus corpus, str system, VVInfo vv, Maybe
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved) {
@@ -2211,11 +2269,15 @@ public PatternStats patternTwentyOne(Corpus corpus, str system, VVInfo vv, Maybe
 						if (definitePropertyAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
+						} else {
+							unres = unres + qr.l;
 						}
 					} else if (var(name(name(s))) := vp) {
 						if (definiteVariableAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
+						} else {
+							unres = unres + qr.l;
 						}
 					}
 				} catch _ : {
@@ -2224,31 +2286,31 @@ public PatternStats patternTwentyOne(Corpus corpus, str system, VVInfo vv, Maybe
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTwentyOne(Corpus corpus) {
@@ -2283,8 +2345,8 @@ public PatternStats patternTwentyTwo(Corpus corpus, str system, VVInfo vv, Maybe
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved) {
@@ -2299,11 +2361,15 @@ public PatternStats patternTwentyTwo(Corpus corpus, str system, VVInfo vv, Maybe
 						if (definitePropertyAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStrings2(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
+						} else {
+							unres = unres + qr.l;
 						}
 					} else if (var(name(name(s))) := vp) {
 						if (definiteVariableAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStrings2(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
+						} else {
+							unres = unres + qr.l;
 						}
 					}
 				} catch _ : {
@@ -2312,31 +2378,31 @@ public PatternStats patternTwentyTwo(Corpus corpus, str system, VVInfo vv, Maybe
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTwentyTwo(Corpus corpus) {
@@ -2371,8 +2437,8 @@ public PatternStats patternTwentyThree(Corpus corpus, str system, VVInfo vv, May
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved) {
@@ -2389,7 +2455,11 @@ public PatternStats patternTwentyThree(Corpus corpus, str system, VVInfo vv, May
 						if (definiteVariableAssignment(c, v, qr.e)) {
 							assigned = gatherArrayOfStringsWithChaining(c, var(name(name(v))));
 							res = res + { < qr.l, varName(as) > | as <- assigned };
+						} else {
+							unres = unres + qr.l;
 						}
+					} else {
+						unres = unres + qr.l;
 					}
 				} catch _ : {
 					continue;
@@ -2397,31 +2467,31 @@ public PatternStats patternTwentyThree(Corpus corpus, str system, VVInfo vv, May
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTwentyThree(Corpus corpus) {
@@ -2457,8 +2527,8 @@ public PatternStats patternTwentyFour(Corpus corpus, str system, VVInfo vv, Mayb
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, containsSingleVar(getVariablePart(qr.e))) {
@@ -2477,8 +2547,15 @@ public PatternStats patternTwentyFour(Corpus corpus, str system, VVInfo vv, Mayb
 					if (definiteVariableAssignment(c, v, qr.e)) {
 						assigned = gatherAssignedStringsWithChaining(c, var(name(name(v))));
 						// TODO: Check for dangerous uses, excluding assignment locs
-						varExprs = { replaceInExpr(getVariablePart(qr.e), v, scalar(string(asi))) | asi <- assigned }; 
-						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+						varExprs = { replaceInExpr(getVariablePart(qr.e), v, scalar(string(asi))) | asi <- assigned };
+						toAdd = { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+						if (size(toAdd) > 0) { 
+							res = res + toAdd;
+						} else {
+							unres = unres + qr.l;
+						}
+					} else {
+						unres = unres + qr.l;
 					}
 				} catch _ : {
 					continue;
@@ -2486,31 +2563,31 @@ public PatternStats patternTwentyFour(Corpus corpus, str system, VVInfo vv, Mayb
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTwentyFour(Corpus corpus) {
@@ -2546,14 +2623,11 @@ public PatternStats patternTwentyFive(Corpus corpus, str system, VVInfo vv, Mayb
 	// Load the CFG information map so we can get back generated CFGs
 	//scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved) {
-			if (/acp_email/ := qr.l.path) {
-				println("Found it!");
-			}
 			//CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
 			
 			//if (emptyCFG() := c) {
@@ -2564,6 +2638,8 @@ public PatternStats patternTwentyFive(Corpus corpus, str system, VVInfo vv, Mayb
 					if (vp is ternary) {
 						assigned = ternaryStringResults(algebraicSimplification(vp));
 						res = res + { < qr.l, varName(as) > | as <- assigned };
+					} else {
+						unres = unres + qr.l;
 					}
 				} catch _ : {
 					continue;
@@ -2571,31 +2647,31 @@ public PatternStats patternTwentyFive(Corpus corpus, str system, VVInfo vv, Mayb
 			//}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternTwentyFive(Corpus corpus) {
@@ -2974,41 +3050,41 @@ public void runExtracts() {
 public void runPatterns() {
 	corpus = getBaseCorpus();
 
-//	println("Running Pattern One");
-//	writePatternStats("one", patternOne(corpus));
-//
-//	println("Running Pattern Two");
-//	writePatternStats("two", patternTwo(corpus));
-//
-//	println("Running Pattern Three");
-//	writePatternStats("three", patternThree(corpus));
-//
-//	println("Running Pattern Four");
-//	writePatternStats("four", patternFour(corpus));
-//
-//	println("Running Pattern Five");
-//	writePatternStats("five", patternFive(corpus));
-//
-//	println("Running Pattern Six");
-//	writePatternStats("six", patternSix(corpus));
-//
-//	println("Running Pattern Seven");
-//	writePatternStats("seven", patternSeven(corpus));
-//
-//	println("Running Pattern Eight");
-//	writePatternStats("eight", patternEight(corpus));
-//
-//	println("Running Pattern Nine");
-//	writePatternStats("nine", patternNine(corpus));
-//
-//	println("Running Pattern Ten");
-//	writePatternStats("ten", patternTen(corpus));
-//
-//	println("Running Pattern Eleven");
-//	writePatternStats("eleven", patternEleven(corpus));
-//
-//	println("Running Pattern Twelve");
-//	writePatternStats("twelve", patternTwelve(corpus));
+	println("Running Pattern One");
+	writePatternStats("one", patternOne(corpus));
+
+	println("Running Pattern Two");
+	writePatternStats("two", patternTwo(corpus));
+
+	println("Running Pattern Three");
+	writePatternStats("three", patternThree(corpus));
+
+	println("Running Pattern Four");
+	writePatternStats("four", patternFour(corpus));
+
+	println("Running Pattern Five");
+	writePatternStats("five", patternFive(corpus));
+
+	println("Running Pattern Six");
+	writePatternStats("six", patternSix(corpus));
+
+	println("Running Pattern Seven");
+	writePatternStats("seven", patternSeven(corpus));
+
+	println("Running Pattern Eight");
+	writePatternStats("eight", patternEight(corpus));
+
+	println("Running Pattern Nine");
+	writePatternStats("nine", patternNine(corpus));
+
+	println("Running Pattern Ten");
+	writePatternStats("ten", patternTen(corpus));
+
+	println("Running Pattern Eleven");
+	writePatternStats("eleven", patternEleven(corpus));
+
+	println("Running Pattern Twelve");
+	writePatternStats("twelve", patternTwelve(corpus));
 
 	println("Running Pattern Thirteen");
 	writePatternStats("thirteen", patternThirteen(corpus));
@@ -3016,32 +3092,32 @@ public void runPatterns() {
 	println("Running Pattern Fourteen");
 	writePatternStats("fourteen", patternFourteen(corpus));
 
-//	println("Running Pattern Twenty One");
-//	writePatternStats("twentyone", patternTwentyOne(corpus));
-//
-//	println("Running Pattern Twenty Two");
-//	writePatternStats("twentytwo", patternTwentyTwo(corpus));
-//
-//	println("Running Pattern Twenty Three");
-//	writePatternStats("twentythree", patternTwentyThree(corpus));
-//
-//	println("Running Pattern Twenty Four");
-//	writePatternStats("twentyfour", patternTwentyFour(corpus));
-//
-//	println("Running Pattern Twenty Five");
-//	writePatternStats("twentyfive", patternTwentyFive(corpus));
-//
-//	println("Running Pattern Thirty One");
-//	writePatternStats("thirtyone", patternThirtyOne(corpus));
-//
-//	println("Running Pattern Thirty Two");
-//	writePatternStats("thirtytwo", patternThirtyTwo(corpus));
-//
-//	println("Running Pattern Thirty Three");
-//	writePatternStats("thirtythree", patternThirtyThree(corpus));
-//
-//	println("Running Pattern Thirty Four");
-//	writePatternStats("thirtyfour", patternThirtyFour(corpus));
+	println("Running Pattern Twenty One");
+	writePatternStats("twentyone", patternTwentyOne(corpus));
+
+	println("Running Pattern Twenty Two");
+	writePatternStats("twentytwo", patternTwentyTwo(corpus));
+
+	println("Running Pattern Twenty Three");
+	writePatternStats("twentythree", patternTwentyThree(corpus));
+
+	println("Running Pattern Twenty Four");
+	writePatternStats("twentyfour", patternTwentyFour(corpus));
+
+	println("Running Pattern Twenty Five");
+	writePatternStats("twentyfive", patternTwentyFive(corpus));
+
+	println("Running Pattern Thirty One");
+	writePatternStats("thirtyone", patternThirtyOne(corpus));
+
+	println("Running Pattern Thirty Two");
+	writePatternStats("thirtytwo", patternThirtyTwo(corpus));
+
+	println("Running Pattern Thirty Three");
+	writePatternStats("thirtythree", patternThirtyThree(corpus));
+
+	println("Running Pattern Thirty Four");
+	writePatternStats("thirtyfour", patternThirtyFour(corpus));
 }
 
 public void generateLatex() {
@@ -3165,8 +3241,8 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -3208,6 +3284,7 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 						res = res + { < qr.l, varName(vi) > | vi <- getUsefulCondExpressionValues(cond, v) };
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+						unres = unres + qr.l;
 					}
 				} else if (elseIf(Expr cond, list[Stmt] body) := part) {
 					// If we are here, this means the use is inside the elseIf body. See if the condition
@@ -3223,36 +3300,37 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 						res = res + { < qr.l, varName(vi) > | vi <- getUsefulCondExpressionValues(cond, v) };
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternThirtyOne(Corpus corpus) {
@@ -3286,8 +3364,8 @@ public PatternStats patternThirtyTwo(Corpus corpus, str system, VVInfo vv, Maybe
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
@@ -3332,36 +3410,38 @@ public PatternStats patternThirtyTwo(Corpus corpus, str system, VVInfo vv, Maybe
 						possibleCases = reachableCases(c, qr.e, containingSwitch.cases);
 						caseValues = { sval | \case(someExpr(scalar(string(sval))),_) <- possibleCases };
 						res = res + { < qr.l, varName(cv) > | cv <- caseValues };
+					} else {
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternThirtyTwo(Corpus corpus) {
@@ -3395,8 +3475,8 @@ public PatternStats patternThirtyThree(Corpus corpus, str system, VVInfo vv, May
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -3437,6 +3517,7 @@ public PatternStats patternThirtyThree(Corpus corpus, str system, VVInfo vv, May
 						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+						unres = unres + qr.l;
 					}
 				} else if (elseIf(Expr cond, list[Stmt] body) := part) {
 					// If we are here, this means the use is inside the elseIf body. See if the condition
@@ -3453,36 +3534,37 @@ public PatternStats patternThirtyThree(Corpus corpus, str system, VVInfo vv, May
 						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternThirtyThree(Corpus corpus) {
@@ -3516,8 +3598,8 @@ public PatternStats patternThirtyFour(Corpus corpus, str system, VVInfo vv, Mayb
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
@@ -3563,36 +3645,38 @@ public PatternStats patternThirtyFour(Corpus corpus, str system, VVInfo vv, Mayb
 						caseValues = { scalar(string(sval)) | \case(someExpr(scalar(string(sval))),_) <- possibleCases };
 						varExprs = replaceInExpr(getVariablePart(e), v, caseValues);
 						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
+					} else {
+						unres = unres + qr.l;
 					}
 				}
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] patternThirtyFour(Corpus corpus) {
@@ -3626,8 +3710,8 @@ public PatternStats antiPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[S
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved) {
@@ -3658,31 +3742,31 @@ public PatternStats antiPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[S
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] antiPatternTwo(Corpus corpus) {
@@ -3716,8 +3800,8 @@ public PatternStats antiPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[S
 	// Load the CFG information map so we can get back generated CFGs
 	scriptCFGs = loadCFGMap(corpus, system);
 
-	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
-		rel[loc,AnalysisName] res = { };
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet, qr.l notin alreadyResolved) {
@@ -3748,31 +3832,31 @@ public PatternStats antiPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[S
 			}
 		}
 		 
-		return res;
+		return < res, unres >;
 	}
 	 
-	vvusesRes = resolvePattern(vv.vvuses<2>);
-	vvcallsRes = resolvePattern(vv.vvcalls<2>);
-	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
-	vvnewsRes = resolvePattern(vv.vvnews<2>);
-	vvpropsRes = resolvePattern(vv.vvprops<2>);
-	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
-	vvscallsRes = resolvePattern(vv.vvscalls<2>);
-	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
-	vvspropsRes = resolvePattern(vv.vvsprops<2>);
-	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
 	
 	return patternStats(
-		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
-		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
-		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
-		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
-		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
-		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
-		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
-		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
-		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
-		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
 public map[str s, PatternStats p] antiPatternTwo(Corpus corpus) {
