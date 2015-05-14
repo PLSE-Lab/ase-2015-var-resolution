@@ -88,8 +88,8 @@ public str showVVInfoAsLatex(list[tuple[str p, str v, QueryResult qr]] vvuses,
 	gmap = resultsToGini(vvall);
 	
 	str headerLine() {
-		return "Product & Files & \\multicolumn{19}{c}{PHP Variable Features} \\\\
-		       '\\cmidrule{3-21}
+		return "Product & Files & \\multicolumn{18}{c}{PHP Variable Features} \\\\
+		       '\\cmidrule{3-20}
 		       ' & & \\multicolumn{2}{c}{Variables} & \\phantom{a} & \\multicolumn{2}{c}{Function Calls} & \\phantom{a} & \\multicolumn{2}{c}{Method Calls} & \\phantom{a} & \\multicolumn{2}{c}{Property Fetches} & \\phantom{a} & \\multicolumn{2}{c}{Instantiations} & \\phantom{a} & \\multicolumn{3}{c}{All} \\\\
 		       '\\cmidrule{3-4} \\cmidrule{6-7} \\cmidrule{9-10} \\cmidrule{12-13} \\cmidrule{15-16} \\cmidrule{18-20}
 		       ' &  & Files & Uses && Files & Uses && Files & Uses && Files & Uses && Files & Uses && Files & Uses & Gini \\\\ \\midrule";
