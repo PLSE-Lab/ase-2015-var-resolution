@@ -204,20 +204,83 @@ public bool exprIsScalarString(Expr e) {
 	return (scalar(string(s)) := e);
 }
 
+public bool exprIsScalarStringOrChained(Expr e, bool reduce=true) {
+	if (reduce) {
+		solve(e) {
+			e = bottom-up visit(e) {
+				case Expr e2 => simulateCall(algebraicSimplification(e2))
+			}
+		}
+	}
+	return (scalar(string(s)) := e || (assign(_,e2) := e && exprIsScalarString(e2,reduce=false)));
+}
+
+public bool exprIsArrayOfStringsOrChained(Expr e, bool reduce=true) {
+	if (reduce) {
+		solve(e) {
+			e = bottom-up visit(e) {
+				case Expr e2 => simulateCall(algebraicSimplification(e2))
+			}
+		}
+	}
+	return (( array(el) := e && false notin { scalar(string(_)) := av | arrayElement(_,av,_) <- el } ) || (assign(_,e2) := e && exprIsArrayOfStringsOrChained(e2,reduce=false)));
+}
+
 public str getScalarString(Expr e) {
 	solve(e) {
 		e = bottom-up visit(e) {
 			case Expr e2 => simulateCall(algebraicSimplification(e2))
 		}
 	}
+
 	if (scalar(string(s)) := e) {
 		return s;
 	}
 	throw "No value";
 }
 
+public str getScalarStringOrChained(Expr e, bool reduce=true) {
+	if (reduce) {
+		solve(e) {
+			e = bottom-up visit(e) {
+				case Expr e2 => simulateCall(algebraicSimplification(e2))
+			}
+		}
+	}
+	if (scalar(string(s)) := e) {
+		return s;
+	} else if (assign(_,e2) := e) {
+		return getScalarString(e2,reduce=false);
+	}
+	throw "No value";
+}
+
+public set[str] getArrayOfStringsOrChained(Expr e, bool reduce=true) {
+	if (reduce) {
+		solve(e) {
+			e = bottom-up visit(e) {
+				case Expr e2 => simulateCall(algebraicSimplification(e2))
+			}
+		}
+	}
+	if (array(el) := e) {
+		return { v | arrayElement(_,scalar(string(v)),_) <- el };
+	} else if (assign(_,e2) := e) {
+		return getScalarString(e2,reduce=false);
+	}
+	throw "No value";
+}
+
 public set[str] gatherAssignedStrings(CFG g, Expr e) {
 	return { getScalarString(e2) | exprNode(assign(e, e2),_) <- g.nodes, exprIsScalarString(e2) };
+}
+
+public set[str] gatherAssignedStringsWithChaining(CFG g, Expr e) {
+	return { getScalarStringOrChained(e2) | exprNode(assign(e, e2),_) <- g.nodes, exprIsScalarStringOrChained(e2) };
+}
+
+public set[str] gatherArrayOfStringsWithChaining(CFG g, Expr e) {
+	return { *getArrayOfStringsOrChained(e2) | exprNode(assign(e, e2),_) <- g.nodes, exprIsArrayOfStringsOrChained(e2) };
 }
 
 public bool ternaryHasStringResults(Expr e) {
@@ -399,8 +462,10 @@ public bool addressTaken(Stmt s, str v) {
 	Resolve variable definitions for Pattern One. Pattern one is the following:
 	
 	1. A foreach loop is defined that works directly over a literal array
-	2. Each element of this array is assigned into the foreach variable
+	2. Each element of this array is assigned into the foreach variable representing the value
 	3. This foreach variable is used directly as the name of the variable being accessed
+
+	TODO: Add example here
 	
 	We can resolve this under the restriction that the foreach variable is not used
 	in a way where it could be modified (it is not passed to a function or method
@@ -505,7 +570,7 @@ public map[str s, PatternStats p] patternOne(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt));
+		res[s] = patternOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("one"),s));
 	}
 	
 	return res;
@@ -516,7 +581,20 @@ rel[loc,Expr] getStandardAssignmentsFor(str varname, set[CFGNode] nodes) {
 }
 
 @doc{
-	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+	Resolve variable definitions for Pattern Two. Pattern two is the following:
+	
+	1. A literal array is defined and assigned to a variable
+	2. A foreach loop is defined that works over this variable
+	3. Each element of this array is assigned into the foreach variable representing the value
+	4. This foreach variable is used directly as the name of the variable being accessed
+	
+	TODO: Add example
+
+	We can resolve this under the restriction that the foreach variable is not used
+	in a way where it could be modified (it is not passed to a function or method
+	as a reference parameter, it is not reference assigned to another variable, it
+	is not used as the target of an assignment). This also needs to occur in the
+	context of the foreach that provides the variable.
 }
 public rel[loc,AnalysisName] patternTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -540,6 +618,9 @@ public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, hasVariableForName(e)) {
+			if (/functions_privmsgs/ := qr.l.path) {
+				println("Found it!");
+			}
 			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
 			if (emptyCFG() := c) {
 				println("WARNING: No CFG found for <pp(e)> at <e@at>");
@@ -554,8 +635,8 @@ public PatternStats patternTwo(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 				Script s = pt[qr.l.top];
 				list[Stmt] foreaches = [];
 				visit(s) {
-					case e : {
-						if (e@at == qr.l) {
+					case Expr e2 : {
+						if ((e2@at)? && (e2@at == qr.l)) {
 							foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,_,_,var(name(name(v))),_) := cn ];
 						} 
 					}
@@ -627,7 +708,7 @@ public map[str s, PatternStats p] patternTwo(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs("one",s));
+		res[s] = patternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("two"),s));
 	}
 	
 	return res;
@@ -635,9 +716,13 @@ public map[str s, PatternStats p] patternTwo(Corpus corpus) {
 
 
 @doc{
-	Resolve variable definitions for Pattern Three. Pattern three is like pattern one, but focuses on the key assigned
-	in the foreach, not the value.
+	Resolve variable definitions for Pattern Three. Pattern three is identical to pattern
+	one except here we use the key in the foreach, not the standard foreach variable (e.g.,
+	we have $key => $value and use $key, not $value).
+
+	TODO: Add example
 }
+
 public rel[loc,AnalysisName] patternThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
@@ -735,14 +820,18 @@ public map[str s, PatternStats p] patternThree(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two"},s));
+		res[s] = patternThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("three"),s));
 	}
 	
 	return res;
 }
 
 @doc{
-	Resolve variable definitions for Pattern Four. Pattern four is like pattern two, but using the key instead of the value.
+	Resolve variable definitions for Pattern Four. Pattern four is identical to pattern
+	two except here we use the key in the foreach, not the standard foreach variable (e.g.,
+	we have $key => $value and use $key, not $value).
+
+	TODO: Add example
 }
 public rel[loc,AnalysisName] patternFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -780,8 +869,8 @@ public PatternStats patternFour(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 				Script s = pt[qr.l.top];
 				list[Stmt] foreaches = [];
 				visit(s) {
-					case e : {
-						if (e@at == qr.l) {
+					case Expr e2 : {
+						if ((e2@at)? && (e2@at == qr.l)) {
 							foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,someExpr(var(name(name(v)))),_,_,_) := cn ];
 						} 
 					}
@@ -853,14 +942,19 @@ public map[str s, PatternStats p] patternFour(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three"},s));
+		res[s] = patternFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("four"),s));
 	}
 	
 	return res;
 }
 
 @doc{
-	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+	Resolve variable definitions for Pattern Five. Pattern five is very similar to pattern one, but in this
+	case, instead of using the foreach variable as the name of the variable to look up, we have a second
+	variable which is assigned a string value that includes the foreach variable. This second variable is
+	then used to determine the identifier.
+
+	TODO: Add example
 }
 public rel[loc,AnalysisName] patternFive(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternFive(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -910,8 +1004,8 @@ public PatternStats patternFive(Corpus corpus, str system, VVInfo vv, Maybe[Syst
 					Script s = pt[qr.l.top];
 					list[Stmt] foreaches = [];
 					visit(s) {
-						case e : {
-							if (e@at == qr.l) {
+						case Expr e2 : {
+							if ((e2@at)? && (e2@at == qr.l)) {
 								foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,_,_,var(name(name(v))),_) := cn ];
 							} 
 						}
@@ -971,14 +1065,19 @@ public map[str s, PatternStats p] patternFive(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternFive(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four"},s));
+		res[s] = patternFive(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("five"),s));
 	}
 	
 	return res;
 }
 
 @doc{
-	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+	Resolve variable definitions for Pattern Six. Pattern six is very similar to pattern two, but in this
+	case, instead of using the foreach variable as the name of the variable to look up, we have a second
+	variable which is assigned a string value that includes the foreach variable. This second variable is
+	then used to determine the identifier.
+
+	TODO: Add example
 }
 public rel[loc,AnalysisName] patternSix(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternSix(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -1028,8 +1127,8 @@ public PatternStats patternSix(Corpus corpus, str system, VVInfo vv, Maybe[Syste
 					Script s = pt[qr.l.top];
 					list[Stmt] foreaches = [];
 					visit(s) {
-						case e : {
-							if (e@at == qr.l) {
+						case Expr e2 : {
+							if ((e2@at)? && (e2@at == qr.l)) {
 								foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,_,_,var(name(name(v))),_) := cn ];
 							} 
 						}
@@ -1103,13 +1202,21 @@ public map[str s, PatternStats p] patternSix(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternSix(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five"},s));
+		res[s] = patternSix(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("six"),s));
 	}
 	
 	return res;
 }
 
 
+@doc{
+	Resolve variable definitions for Pattern Seven. Pattern seven is very similar to pattern three, but in
+	this case, instead of using the foreach key as the name of the variable to look up, we have a second
+	variable which is assigned a string value that includes the foreach key. This second variable is
+	then used to determine the identifier.
+
+	TODO: Add example
+}
 public rel[loc,AnalysisName] patternSeven(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternSeven(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
@@ -1158,8 +1265,8 @@ public PatternStats patternSeven(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 					Script s = pt[qr.l.top];
 					list[Stmt] foreaches = [];
 					visit(s) {
-						case e : {
-							if (e@at == qr.l) {
+						case Expr e2 : {
+							if ((e2@at)? && (e2@at == qr.l)) {
 								foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,someExpr(var(name(name(v)))),_,_,_) := cn ];
 							} 
 						}
@@ -1219,24 +1326,19 @@ public map[str s, PatternStats p] patternSeven(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternSeven(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six"},s));
+		res[s] = patternSeven(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("seven"),s));
 	}
 	
 	return res;
 }
 
 @doc{
-	Resolve variable definitions for Pattern One. Pattern one is the following:
-	
-	1. A foreach loop is defined that works directly over a literal array
-	2. Each element of this array is assigned into the foreach variable
-	3. This foreach variable is used directly as the name of the variable being accessed
-	
-	We can resolve this under the restriction that the foreach variable is not used
-	in a way where it could be modified (it is not passed to a function or method
-	as a reference parameter, it is not reference assigned to another variable, it
-	is not used as the target of an assignment). This also needs to occur in the
-	// context of the foreach that provides the variable.
+	Resolve variable definitions for Pattern Eight. Pattern eight is very similar to pattern four, but in
+	this case, instead of using the foreach key as the name of the variable to look up, we have a second
+	variable which is assigned a string value that includes the foreach key. This second variable is
+	then used to determine the identifier.
+
+	TODO: Add example
 }
 public rel[loc,AnalysisName] patternEight(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternEight(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -1286,8 +1388,8 @@ public PatternStats patternEight(Corpus corpus, str system, VVInfo vv, Maybe[Sys
 					Script s = pt[qr.l.top];
 					list[Stmt] foreaches = [];
 					visit(s) {
-						case e : {
-							if (e@at == qr.l) {
+						case Expr e2 : {
+							if ((e2@at)? && (e2@at == qr.l)) {
 								foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,some(var(name(name(v)))),_,_,_) := cn ];
 							} 
 						}
@@ -1361,24 +1463,20 @@ public map[str s, PatternStats p] patternEight(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternEight(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven"},s));
+		res[s] = patternEight(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("eight"),s));
 	}
 	
 	return res;
 }
 
 @doc{
-	Resolve variable definitions for Pattern One. Pattern one is the following:
-	
-	1. A foreach loop is defined that works directly over a literal array
-	2. Each element of this array is assigned into the foreach variable
-	3. This foreach variable is used directly as the name of the variable being accessed
-	
-	We can resolve this under the restriction that the foreach variable is not used
-	in a way where it could be modified (it is not passed to a function or method
-	as a reference parameter, it is not reference assigned to another variable, it
-	is not used as the target of an assignment). This also needs to occur in the
-	context of the foreach that provides the variable.
+	Resolve variable definitions for Pattern Nine. Pattern nine is very similar to pattern one, but in
+	this case, instead of using the foreach value as the name of the variable to look up, we use this
+	variable as part of an expression that yields a string, using this to find the identifier. This is
+	different from pattern five because the expression is given inline, directly as the name of the
+	identifier, and is not assigned into a second variable first.
+
+	TODO: Add example
 }
 public rel[loc,AnalysisName] patternNine(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternNine(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -1478,14 +1576,604 @@ public map[str s, PatternStats p] patternNine(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternNine(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight"},s));
+		res[s] = patternNine(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("nine"),s));
 	}
 	
 	return res;
 }
 
 @doc{
-	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+	Resolve variable definitions for Pattern Ten. Pattern ten is very similar to pattern two, but in
+	this case, instead of using the foreach value as the name of the variable to look up, we use this
+	variable as part of an expression that yields a string, using this to find the identifier. This is
+	different from pattern six because the expression is given inline, directly as the name of the
+	identifier, and is not assigned into a second variable first.
+
+	TODO: Add example
+}
+public rel[loc,AnalysisName] patternTen(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternTen(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternTen(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(e)> at <e@at>");
+			} else {
+				g = cfgAsGraph(c);
+				
+				// We have a variable feature use, so get the actual variable used to hold it
+				str v = getSingleVar(getVariablePart(e));
+				
+				// Find the node inside the system using a visit, that way we can also
+				// find the containing foreach
+				Script s = pt[qr.l.top];
+				list[Stmt] foreaches = [];
+				visit(s) {
+					case Expr e2 : {
+						if ((e2@at)? && (e2@at == qr.l)) {
+							foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,_,_,var(name(name(v))),_) := cn ];
+						} 
+					}
+				}
+				
+				if (!isEmpty(foreaches)) {
+					fe = foreaches[0];
+					if (fe.byRef) {
+						println("Cannot use foreach, it creates an alias, <fe@at>");
+					} else {
+						aexp = fe.arrayExpr;
+						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
+							// TODO: Verify reachability
+							assignments = getStandardAssignmentsFor(aname, carrier(g));
+							if (size(assignments<1>) == 1) {
+								assignLocs = assignments<0>;
+								assignExpr = getOneFrom(assignments<1>);						
+								if (array(aelist) := assignExpr.assignExpr && false notin { exprIsScalarString(aeItem.val) | aeItem <- aelist }) {
+									//if (hasDangerousUse(fe, v, fm, ignoreLocs=assignLocs)) {
+									//	println("Cannot use foreach, it has a potentially dangerous use");
+									//} else {
+										varExprs = replaceInExpr(getVariablePart(e), v, { aeItem.val | aeItem <- aelist });
+										res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
+									//}
+								} else {
+									println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 10, <qr.l>");
+								}
+							} else if (isEmpty(assignments<1>)) {
+								println("No local assignments, cannot use variable <aname>, <qr.l>");
+							} else {
+								println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+							}							
+						} else {
+							println("Array expression in foreach <pp(aexp)> does not match pattern 10, <qr.l>");
+						}
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternTen(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternTen(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("ten"),s));
+	}
+	
+	return res;
+}
+
+
+@doc{
+	Resolve variable definitions for Pattern Eleven. Pattern eleven is very similar to pattern three, 
+	but in this case, instead of using the foreach key as the name of the variable to look up, we use
+	this variable as part of an expression that yields a string, using this to find the identifier. 
+	This is different from pattern seven because the expression is given inline, directly as the name 
+	of the identifier, and is not assigned into a second variable first.
+
+	TODO: Add example
+}
+public rel[loc,AnalysisName] patternEleven(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternEleven(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+
+public PatternStats patternEleven(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features
+	vvAll = collapseVVInfo(vv);
+	
+	// Get back the script locations for all the uses
+	scriptLocs = { qr.l.top | qr <- vvAll };
+	//println("Found variable features in <size(scriptLocs)> files");
+	
+	// Generate control flow graphs for each script location
+	//map[loc,map[NamePath,CFG]] scriptCFGs = ( l : buildCFGs(pt[l],buildBasicBlocks=false) | l <- scriptLocs );
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			//println("Processing expression <pp(e)> at location <qr.l>");
+			//CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
+			//g = cfgAsGraph(c);
+			
+			// We have a variable feature use, so get the actual variable used to hold it
+			str v = getSingleVar(getVariablePart(e));
+		
+			// Find the node inside the system using a visit, that way we can also
+			// find the containing foreach
+			Script s = pt[qr.l.top];
+			list[Stmt] foreaches = [];
+			visit(s) {
+				case Expr e2 : {
+					if ((e2@at)? && (e2@at == qr.l)) {
+						foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,someExpr(var(name(name(v)))),_,_,_) := cn ];
+					} 
+				}
+			}
+			
+			if (!isEmpty(foreaches)) {
+				fe = foreaches[0];
+				if (fe.byRef) {
+					println("Cannot use foreach, it creates an alias, <fe@at>");
+				} else {
+					aexp = fe.arrayExpr;
+					if (array(aelist) := aexp && false notin { aeItem.key is someExpr | aeItem <- aelist } && false notin { exprIsScalarString(aeItem.key.expr) | aeItem <- aelist }) {
+						//if (hasDangerousUse(fe, v, fm)) {
+						//	println("Cannot use foreach, it has a potentially dangerous use, <fe@at>");
+						//} else {
+							varExprs = replaceInExpr(getVariablePart(e), v, { aeItem.key.expr | aeItem <- aelist }); 
+							res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+						//}
+					} else {
+						println("Array expression <pp(aexp)> does not match pattern 11, <qr.l>");
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternEleven(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternEleven(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("eleven"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Twelve. Pattern twelve is very similar to pattern four, 
+	but in this case, instead of using the foreach key as the name of the variable to look up, we use
+	this variable as part of an expression that yields a string, using this to find the identifier. 
+	This is different from pattern eight because the expression is given inline, directly as the name 
+	of the identifier, and is not assigned into a second variable first.
+
+	TODO: Add example
+}
+public rel[loc,AnalysisName] patternTwelve(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternTwelve(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternTwelve(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(e)> at <e@at>");
+			} else {
+				g = cfgAsGraph(c);
+				
+				// We have a variable feature use, so get the actual variable used to hold it
+				str v = getSingleVar(getVariablePart(e));
+				
+				// Find the node inside the system using a visit, that way we can also
+				// find the containing foreach
+				Script s = pt[qr.l.top];
+				list[Stmt] foreaches = [];
+				visit(s) {
+					case Expr e2 : {
+						if ((e2@at)? && (e2@at == qr.l)) {
+							foreaches = [ fe | cn <- getTraversalContextNodes(), Stmt fe:foreach(_,someExpr(var(name(name(v)))),_,_,_) := cn ];
+						} 
+					}
+				}
+				
+				if (!isEmpty(foreaches)) {
+					fe = foreaches[0];
+					if (fe.byRef) {
+						println("Cannot use foreach, it creates an alias, <fe@at>");
+					} else {
+						aexp = fe.arrayExpr;
+						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
+							// TODO: Verify reachability
+							assignments = getStandardAssignmentsFor(aname, carrier(g));
+							if (size(assignments<1>) == 1) {
+								assignLocs = assignments<0>;
+								assignExpr = getOneFrom(assignments<1>);			
+								if (array(aelist) := assignExpr.assignExpr && false notin { aeItem.key is someExpr | aeItem <- aelist } && false notin { exprIsScalarString(aeItem.key.expr) | aeItem <- aelist }) {			
+									//if (hasDangerousUse(fe, v, fm, ignoreLocs=assignLocs)) {
+									//	println("Cannot use foreach, it has a potentially dangerous use");
+									//} else {
+										varExprs = replaceInExpr(getVariablePart(e), v, { aeItem.key.expr | aeItem <- aelist }); 
+										res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+									//}
+								} else {
+									println("Array expression <pp(aexp)> at <aexp@at> does not match pattern 12, <qr.l>");
+								}
+							} else if (isEmpty(assignments<1>)) {
+								println("No local assignments, cannot use variable <aname>, <qr.l>");
+							} else {
+								println("Inconsistent assignments, cannot use variable <aname>, <qr.l>");
+							}							
+						} else {
+							println("Array expression in foreach <pp(aexp)> does not match pattern 12, <qr.l>");
+						}
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternTwelve(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternTwelve(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twelve"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern One. Pattern one is the following:
+	
+	1. A foreach loop is defined that works directly over a literal array
+	2. Each element of this array is assigned into the foreach variable representing the value
+	3. This foreach variable is used directly as the name of the variable being accessed
+
+	TODO: Add example here
+	
+	We can resolve this under the restriction that the foreach variable is not used
+	in a way where it could be modified (it is not passed to a function or method
+	as a reference parameter, it is not reference assigned to another variable, it
+	is not used as the target of an assignment). This also needs to occur in the
+	context of the foreach that provides the variable.
+}
+public rel[loc,AnalysisName] patternThirteen(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternThirteen(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+
+public PatternStats patternThirteen(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features
+	vvAll = collapseVVInfo(vv);
+	
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			// We have a variable feature use, so get the actual variable used to hold it
+			str v = getSingleVar(getVariablePart(e));
+			
+			// Find a surrounding for loop that initializes this
+			Script s = pt[qr.l.top];
+			list[Stmt] fors = [];
+			visit(s) {
+				case Expr e2 : {
+					if ((e2@at)? && (e2@at == qr.l)) {
+						fors = [ fe | cn <- getTraversalContextNodes(), 
+									  Stmt fe:\for([_*,assign(var(name(name(v))),scalar(integer(_))),_*],_,[_*,incop,_*],_) := cn,
+						assign(var(name(name(v))),_) := incop || assignWOp(var(name(name(v))),_,_) := incop || unaryOperation(var(name(name(v))),_) := incop ];
+					} 
+				}
+			}
+			
+			if (!isEmpty(fors)) {
+				fe = fors[0];
+				forRange = getForRange(fe,v);
+				//if (hasDangerousUse(fe, v, fm, ignoreLocs = {avAssignExpr@at})) {
+				//	println("Cannot use for-initialized variable, it has a potentially dangerous use, <fe@at>");
+				//} else {
+					varExprs = replaceInExpr(getVariablePart(e), v, { scalar(string("<rnum>")) | rnum <- forRange }); 
+					res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+				//}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternThirteen(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternThirteen(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirteen"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern One. Pattern one is the following:
+	
+	1. A foreach loop is defined that works directly over a literal array
+	2. Each element of this array is assigned into the foreach variable representing the value
+	3. This foreach variable is used directly as the name of the variable being accessed
+
+	TODO: Add example here
+	
+	We can resolve this under the restriction that the foreach variable is not used
+	in a way where it could be modified (it is not passed to a function or method
+	as a reference parameter, it is not reference assigned to another variable, it
+	is not used as the target of an assignment). This also needs to occur in the
+	context of the foreach that provides the variable.
+}
+public rel[loc,AnalysisName] patternFourteen(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternFourteen(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+
+public PatternStats patternFourteen(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(e)> at <e@at>");
+			} else {
+				g = cfgAsGraph(c);
+
+				if (/options/ := qr.l.path) {
+					println("Got it!");
+				}
+							
+				// We have a variable feature use, so get the actual variable used to hold it
+				str av = getSingleVar(getVariablePart(e));
+				
+				// Get the assignments into this variable
+				avAssign = getStandardAssignmentsFor(av, carrier(g));
+				
+				if (size(avAssign<1>) == 1 && containsSingleVar(getOneFrom(avAssign<1>), toIgnore = {av})) {
+					avAssignExpr = getOneFrom(avAssign<1>);
+					v = getSingleVar(avAssignExpr, toIgnore = {av});
+				
+					// Find a surrounding for loop that initializes this
+					Script s = pt[qr.l.top];
+					list[Stmt] fors = [];
+					visit(s) {
+						case Expr e2 : {
+							if ((e2@at)? && (e2@at == qr.l)) {
+								fors = [ fe | cn <- getTraversalContextNodes(), 
+											  Stmt fe:\for([_*,assign(var(name(name(v))),scalar(integer(_))),_*],_,[_*,incop,_*],_) := cn,
+								assign(var(name(name(v))),_) := incop || assignWOp(var(name(name(v))),_,_) := incop || unaryOperation(var(name(name(v))),_) := incop ];
+							} 
+						}
+					}
+					
+					if (!isEmpty(fors)) {
+						fe = fors[0];
+						forRange = getForRange(fe,v);
+						//if (hasDangerousUse(fe, v, fm, ignoreLocs = {avAssignExpr@at})) {
+						//	println("Cannot use for-initialized variable, it has a potentially dangerous use, <fe@at>");
+						//} else {
+							varExprs = replaceInExpr(avAssignExpr.assignExpr, v, { scalar(string("<rnum>")) | rnum <- forRange }); 
+							res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+						//}
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternFourteen(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternFourteen(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("fourteen"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Twenty One. In this pattern, we have a variable that is
+	used to hold the name of the identifier, and use assignments into this variable to determine the
+	possible names. This pattern does not involve the use of a foreach loop, unlike earlier patterns.
 }
 public rel[loc,AnalysisName] patternTwentyOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternTwentyOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -1509,6 +2197,9 @@ public PatternStats patternTwentyOne(Corpus corpus, str system, VVInfo vv, Maybe
 			
 		// Grab back the proper control flow graph for a given location
 		for (qr <- qrSet,  qr.l notin alreadyResolved) {
+			if (/fulltext_native/ := qr.l.path) {
+				println("Found it!");
+			}
 			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
 			
 			if (emptyCFG() := c) {
@@ -1518,12 +2209,12 @@ public PatternStats patternTwentyOne(Corpus corpus, str system, VVInfo vv, Maybe
 					vp = getVariablePart(qr.e);
 					if (propertyFetch(_,name(name(s))) := vp) {
 						if (definitePropertyAssignment(c, s, qr.e)) {
-							assigned = gatherAssignedStrings(c, vp);
+							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
 						}
 					} else if (var(name(name(s))) := vp) {
 						if (definiteVariableAssignment(c, s, qr.e)) {
-							assigned = gatherAssignedStrings(c, vp);
+							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
 						}
 					}
@@ -1565,14 +2256,15 @@ public map[str s, PatternStats p] patternTwentyOne(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternTwentyOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight"},s));
+		res[s] = patternTwentyOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyone"),s));
 	}
 	
 	return res;
 }
 
 @doc{
-	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+	Resolve variable definitions for Pattern Twenty Two. This is similar to Pattern Twenty One, but focuses
+	on a corner case, where the name comes from ternary conditionals that give different strings.
 }
 public rel[loc,AnalysisName] patternTwentyTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	return patternTwentyTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
@@ -1652,13 +2344,280 @@ public map[str s, PatternStats p] patternTwentyTwo(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternTwentyTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight","twentyOne"},s));
+		res[s] = patternTwentyTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentytwo"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Twenty Three. This is similar to Pattern Twenty One, but focuses
+	on a corner case, where the name comes from an array of strings that we are indexing into.
+}
+public rel[loc,AnalysisName] patternTwentyThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternTwentyThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternTwentyThree(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			
+			// TODO: CHECK ARRAY ASSIGNMENT TO ENSURE THIS PATTERN WORKS!
+			
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(qr.e)> at <qr.e@at>");
+			} else {
+				try {
+					vp = getVariablePart(qr.e);
+					if (fetchArrayDim(var(name(name(v))),_) := vp) {
+						if (definiteVariableAssignment(c, v, qr.e)) {
+							assigned = gatherArrayOfStringsWithChaining(c, var(name(name(v))));
+							res = res + { < qr.l, varName(as) > | as <- assigned };
+						}
+					}
+				} catch _ : {
+					continue;
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternTwentyThree(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternTwentyThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentythree"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Twenty Three. This is similar to Pattern Twenty One, but handles
+	the case where the variable or property name isn't used directly, but is instead used inside an expression
+	that can be resolved to a string.
+}
+public rel[loc,AnalysisName] patternTwentyFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternTwentyFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternTwentyFour(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved, containsSingleVar(getVariablePart(qr.e))) {
+			if (/fulltext_native/ := qr.l.path) {
+				println("Found it!");
+			}
+
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(qr.e)> at <qr.e@at>");
+			} else {
+				try {
+					// We have a variable feature use, so get the actual variable used to hold it
+					str v = getSingleVar(getVariablePart(qr.e));
+					if (definiteVariableAssignment(c, v, qr.e)) {
+						assigned = gatherAssignedStringsWithChaining(c, var(name(name(v))));
+						// TODO: Check for dangerous uses, excluding assignment locs
+						varExprs = { replaceInExpr(getVariablePart(qr.e), v, scalar(string(asi))) | asi <- assigned }; 
+						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) };
+					}
+				} catch _ : {
+					continue;
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternTwentyFour(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternTwentyFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyfour"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Twenty Three. This is similar to Pattern Twenty One, but handles
+	the case where the variable or property name isn't used directly, but is instead used inside an expression
+	that can be resolved to a string.
+}
+public rel[loc,AnalysisName] patternTwentyFive(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternTwentyFive(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternTwentyFive(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	//scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet,  qr.l notin alreadyResolved) {
+			if (/acp_email/ := qr.l.path) {
+				println("Found it!");
+			}
+			//CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			
+			//if (emptyCFG() := c) {
+			//	println("WARNING: No CFG found for <pp(qr.e)> at <qr.e@at>");
+			//} else {
+				try {
+					vp = getVariablePart(qr.e);
+					if (vp is ternary) {
+						assigned = ternaryStringResults(algebraicSimplification(vp));
+						res = res + { < qr.l, varName(as) > | as <- assigned };
+					}
+				} catch _ : {
+					continue;
+				}
+			//}
+		}
+		 
+		return res;
+	}
+
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternTwentyFive(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternTwentyFive(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyfive"),s));
 	}
 	
 	return res;
 }
 
 public bool containsSingleVar(Expr e, set[str] toIgnore = { }) {
+	vars = { v | /v:var(_) := e, var(name(name(s))) !:= v || (var(name(name(s))) := v && s notin toIgnore) };
+	if (size(vars) == 1 && var(name(name(_))) := getOneFrom(vars)) {
+		return true;
+	}
+	return false;
+}
+
+public bool containsSingleVarOrProperty(Expr e, set[str] toIgnore = { }) {
 	vars = { v | /v:var(_) := e, var(name(name(s))) !:= v || (var(name(name(s))) := v && s notin toIgnore) };
 	if (size(vars) == 1 && var(name(name(_))) := getOneFrom(vars)) {
 		return true;
@@ -1718,6 +2677,10 @@ public PatternStats readPatternStatsFor(str pname, str s) {
 }
 
 public set[loc] patternResolvedLocs(set[str] pnames, str s) {
+	return { *patternResolvedLocs(pname,s) | pname <- pnames };
+}
+
+public set[loc] patternResolvedLocs(list[str] pnames, str s) {
 	return { *patternResolvedLocs(pname,s) | pname <- pnames };
 }
 
@@ -1891,12 +2854,18 @@ public bool definiteVariableAssignment(CFG g, str v, Expr usedBy) {
 	bool assignedOnPath(CFGNode n) {
 		// If we reach an exit node it doesn't matter, that means we have a path
 		// where we don't have a definition but we also don't have a use.
-		if (isExitNode(n)) return true;
+		if (isExitNode(n)) {
+			return true;
+		}
 
 		// If we find a use of the expression this means we have the use before the def
-		if (exprNode(e,_) := n && e == usedBy && e@at == usedBy@at) return false;
+		if (exprNode(e,_) := n && e == usedBy && e@at == usedBy@at) {
+			return false;
+		}
 
-		if (exprNode(assign(var(name(name(v))),_),_) := n) return true;
+		if (exprNode(assign(var(name(name(v))),_),_) := n) {
+			return true;
+		}
 		toCheck = { gi | gi <- ggraph[n], gi notin checked };
 		checked = checked + toCheck;
 		results = { assignedOnPath(gi) | gi <- toCheck };
@@ -1938,6 +2907,63 @@ public bool definitePropertyAssignment(CFG g, str v, Expr usedBy) {
 	}
 }
 
+
+public set[str] basicReachingDefs(CFG g, str v, Expr usedBy) {
+	ggraph = cfgAsGraph(g);
+
+	// First, what are the possible assignments to v?
+	allDefs = { };
+	rel[Lab,str] startingDefs = { };
+	
+	for (exprNode(assign(var(name(name(v))), Expr toAssign), l) <- g) {
+		if (exprIsScalarStringOrChained(toAssign)) {
+			s = getScalarStringOrChained(toAssign);
+			startingDefs = startingDefs + < l, s >;
+			allDefs = allDefs + s;
+		} else {
+			return { }; // We cannot use this if we have assignments that we cannot resolve
+		}
+	}
+		
+	
+	set[CFGNode] checked = { };
+	
+	set[str] assignedOnPath(CFGNode n, set[str] foundSoFar) {
+		// If we trigger this, this means we have reached the end of the function without
+		// actually encountering the expression that uses variable v. If that is the case,
+		// we just return the empty set since we don't want this to impact the rest of the
+		// analysis.
+		if (isExitNode(n)) {
+			return { };
+		}
+
+		// If this matches, we have found the using expression along this path. Return the
+		// set of reachable names.
+		if (exprNode(e,_) := n && e == usedBy && e@at == usedBy@at) {
+			return foundSoFar;
+		}
+
+		// If this matches, 
+		if (exprNode(assign(var(name(name(v))),Expr toAssign),_) := n) {
+			if (exprIsScalarStringOrChained(toAssign)) {
+				foundSoFar = foundSoFar + getScalarStringOrChained(toAssign); 
+			} else {
+				throw "We cannot use this variable, we have unresolvable assignments";
+			}
+		}
+		toCheck = { gi | gi <- ggraph[n], gi notin checked };
+		checked = checked + toCheck;
+		results = { *assignedOnPath(gi, foundSoFar) | gi <- toCheck };
+		return results;
+	}
+		
+	try {
+		return assignedOnPath(getEntryNode(g));
+	} catch xval : {
+		return false;
+	}
+}
+
 public void runExtracts() {
 	corpus = getBaseCorpus();
 	extractVVInfo(corpus);
@@ -1947,44 +2973,75 @@ public void runExtracts() {
 
 public void runPatterns() {
 	corpus = getBaseCorpus();
-	println("Running Pattern One");
-	writePatternStats("one", patternOne(corpus));
 
-	println("Running Pattern Two");
-	writePatternStats("two", patternTwo(corpus));
+//	println("Running Pattern One");
+//	writePatternStats("one", patternOne(corpus));
+//
+//	println("Running Pattern Two");
+//	writePatternStats("two", patternTwo(corpus));
+//
+//	println("Running Pattern Three");
+//	writePatternStats("three", patternThree(corpus));
+//
+//	println("Running Pattern Four");
+//	writePatternStats("four", patternFour(corpus));
+//
+//	println("Running Pattern Five");
+//	writePatternStats("five", patternFive(corpus));
+//
+//	println("Running Pattern Six");
+//	writePatternStats("six", patternSix(corpus));
+//
+//	println("Running Pattern Seven");
+//	writePatternStats("seven", patternSeven(corpus));
+//
+//	println("Running Pattern Eight");
+//	writePatternStats("eight", patternEight(corpus));
+//
+//	println("Running Pattern Nine");
+//	writePatternStats("nine", patternNine(corpus));
+//
+//	println("Running Pattern Ten");
+//	writePatternStats("ten", patternTen(corpus));
+//
+//	println("Running Pattern Eleven");
+//	writePatternStats("eleven", patternEleven(corpus));
+//
+//	println("Running Pattern Twelve");
+//	writePatternStats("twelve", patternTwelve(corpus));
 
-	println("Running Pattern Three");
-	writePatternStats("three", patternThree(corpus));
+	println("Running Pattern Thirteen");
+	writePatternStats("thirteen", patternThirteen(corpus));
 
-	println("Running Pattern Four");
-	writePatternStats("four", patternFour(corpus));
+	println("Running Pattern Fourteen");
+	writePatternStats("fourteen", patternFourteen(corpus));
 
-	println("Running Pattern Five");
-	writePatternStats("five", patternFive(corpus));
-
-	println("Running Pattern Six");
-	writePatternStats("six", patternSix(corpus));
-
-	println("Running Pattern Seven");
-	writePatternStats("seven", patternSeven(corpus));
-
-	println("Running Pattern Eight");
-	writePatternStats("eight", patternEight(corpus));
-
-	println("Running Pattern Nine");
-	writePatternStats("nine", patternNine(corpus));
-
-	println("Running Pattern Twenty One");
-	writePatternStats("twentyone", patternTwentyOne(corpus));
-
-	println("Running Pattern Twenty Two");
-	writePatternStats("twentytwo", patternTwentyTwo(corpus));
-
-	println("Running Pattern Thirty One");
-	writePatternStats("thirtyone", patternThirtyOne(corpus));
-
-	println("Running Pattern Thirty Two");
-	writePatternStats("thirtytwo", patternThirtyTwo(corpus));
+//	println("Running Pattern Twenty One");
+//	writePatternStats("twentyone", patternTwentyOne(corpus));
+//
+//	println("Running Pattern Twenty Two");
+//	writePatternStats("twentytwo", patternTwentyTwo(corpus));
+//
+//	println("Running Pattern Twenty Three");
+//	writePatternStats("twentythree", patternTwentyThree(corpus));
+//
+//	println("Running Pattern Twenty Four");
+//	writePatternStats("twentyfour", patternTwentyFour(corpus));
+//
+//	println("Running Pattern Twenty Five");
+//	writePatternStats("twentyfive", patternTwentyFive(corpus));
+//
+//	println("Running Pattern Thirty One");
+//	writePatternStats("thirtyone", patternThirtyOne(corpus));
+//
+//	println("Running Pattern Thirty Two");
+//	writePatternStats("thirtytwo", patternThirtyTwo(corpus));
+//
+//	println("Running Pattern Thirty Three");
+//	writePatternStats("thirtythree", patternThirtyThree(corpus));
+//
+//	println("Running Pattern Thirty Four");
+//	writePatternStats("thirtyfour", patternThirtyFour(corpus));
 }
 
 public void generateLatex() {
@@ -2000,12 +3057,22 @@ public void generateLatex() {
 	writeFile(paperLoc+"vv-pattern-seven.tex", patternResultsAsLatex(readPatternStats("seven"), "seven", corpus));	
 	writeFile(paperLoc+"vv-pattern-eight.tex", patternResultsAsLatex(readPatternStats("eight"), "eight", corpus));	
 	writeFile(paperLoc+"vv-pattern-nine.tex", patternResultsAsLatex(readPatternStats("nine"), "nine", corpus));	
+	writeFile(paperLoc+"vv-pattern-ten.tex", patternResultsAsLatex(readPatternStats("ten"), "ten", corpus));	
+	writeFile(paperLoc+"vv-pattern-eleven.tex", patternResultsAsLatex(readPatternStats("eleven"), "eleven", corpus));	
+	writeFile(paperLoc+"vv-pattern-twelve.tex", patternResultsAsLatex(readPatternStats("twelve"), "twelve", corpus));	
+	writeFile(paperLoc+"vv-pattern-thirteen.tex", patternResultsAsLatex(readPatternStats("thirteen"), "thirteen", corpus));	
+	writeFile(paperLoc+"vv-pattern-fourteen.tex", patternResultsAsLatex(readPatternStats("fourteen"), "fourteen", corpus));	
 
 	writeFile(paperLoc+"vv-pattern-twenty-one.tex", patternResultsAsLatex(readPatternStats("twentyone"), "twentyone", corpus));	
 	writeFile(paperLoc+"vv-pattern-twenty-two.tex", patternResultsAsLatex(readPatternStats("twentytwo"), "twentytwo", corpus));
+	writeFile(paperLoc+"vv-pattern-twenty-three.tex", patternResultsAsLatex(readPatternStats("twentythree"), "twentythree", corpus));
+	writeFile(paperLoc+"vv-pattern-twenty-four.tex", patternResultsAsLatex(readPatternStats("twentyfour"), "twentyfour", corpus));
+	writeFile(paperLoc+"vv-pattern-twenty-five.tex", patternResultsAsLatex(readPatternStats("twentyfive"), "twentyfive", corpus));
 	
 	writeFile(paperLoc+"vv-pattern-thirty-one.tex", patternResultsAsLatex(readPatternStats("thirtyone"), "thirtyone", corpus));
 	writeFile(paperLoc+"vv-pattern-thirty-two.tex", patternResultsAsLatex(readPatternStats("thirtytwo"), "thirtytwo", corpus));
+	writeFile(paperLoc+"vv-pattern-thirty-three.tex", patternResultsAsLatex(readPatternStats("thirtythree"), "thirtythree", corpus));
+	writeFile(paperLoc+"vv-pattern-thirty-four.tex", patternResultsAsLatex(readPatternStats("thirtyfour"), "thirtyfour", corpus));
 
 	pstats = readPatternStats("one");
 	pstats = addPatternStats(pstats,readPatternStats("two"));	
@@ -2016,12 +3083,22 @@ public void generateLatex() {
 	pstats = addPatternStats(pstats,readPatternStats("seven"));	
 	pstats = addPatternStats(pstats,readPatternStats("eight"));	
 	pstats = addPatternStats(pstats,readPatternStats("nine"));	
+	pstats = addPatternStats(pstats,readPatternStats("ten"));	
+	pstats = addPatternStats(pstats,readPatternStats("eleven"));	
+	pstats = addPatternStats(pstats,readPatternStats("twelve"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirteen"));	
+	pstats = addPatternStats(pstats,readPatternStats("fourteen"));	
 
 	pstats = addPatternStats(pstats,readPatternStats("twentyone"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentythree"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentyfour"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
 
 	pstats = addPatternStats(pstats,readPatternStats("thirtyone"));	
 	pstats = addPatternStats(pstats,readPatternStats("thirtytwo"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtythree"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtyfour"));	
 
 	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatex(pstats,"all",corpus));
 }
@@ -2173,7 +3250,7 @@ public map[str s, PatternStats p] patternThirtyOne(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternThirtyOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight","twentyOne","twentyTwo"},s));
+		res[s] = patternThirtyOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtyone"),s));
 	}
 	
 	return res;
@@ -2282,7 +3359,418 @@ public map[str s, PatternStats p] patternThirtyTwo(Corpus corpus) {
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = patternThirtyTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs({"one","two","three","four","five","six","seven","eight","twentyOne","twentyTwo"},s));
+		res[s] = patternThirtyTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtytwo"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternThirtyThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternThirtyThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternThirtyThree(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			//println("Processing expression <pp(e)> at location <qr.l>");
+			//CFG c = cfgForExpression(scriptCFGs[qr.l.top],e);
+			//g = cfgAsGraph(c);
+
+			// We have a variable feature use, so get the actual variable used to hold it
+			str v = getSingleVar(getVariablePart(e));
+			
+			// Find the node inside the system using a visit, that way we can also
+			// find the containing foreach
+			Script s = pt[qr.l.top];
+			list[node] conditionalParts = [ ];
+			visit(s) {
+				case Expr e2 : {
+					if ((e2@at)? && (e2@at == qr.l)) {
+						conditionalParts = [ ce | ce <- getTraversalContextNodes(), (ce is \if || ce is \elseIf) ];
+					} 
+				}
+			}
+			
+			if (!isEmpty(conditionalParts)) {
+				part = conditionalParts[0]; conditionalParts = conditionalParts[1..];
+				
+				if (\if(Expr cond, list[Stmt] body, list[ElseIf] elseIfs, OptionElse elseClause) := part) {
+					// If we are here, this means that the use is inside the body. See if the condition
+					// is helpful.
+					if (isUsefulCondExpression(cond,v)) {
+						// TODO: See if we need this, not sure why I commented this out...
+						//if (true in { hasDangerousUse(ci,v,fm) | ci <- body }) {
+						//	// This means the conditional this was found in also has dangerous uses of the name,
+						//	// so we should give up
+						//	println("Dangerous uses of <v> found in conditional, no match at <qr.l>");
+						//	return res;
+						//}
+						varExprs = replaceInExpr(getVariablePart(e), v, { scalar(string(sv)) | sv <- getUsefulCondExpressionValues(cond,v)});
+						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
+					} else {
+						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+					}
+				} else if (elseIf(Expr cond, list[Stmt] body) := part) {
+					// If we are here, this means the use is inside the elseIf body. See if the condition
+					// is helpful
+					if (isUsefulCondExpression(cond,v)) {
+						// TODO: See if we need this, not sure why I commented this out...
+						//if (true in { hasDangerousUse(ci,v,fm) | ci <- body }) {
+						//	// This means the conditional this was found in also has dangerous uses of the name,
+						//	// so we should give up
+						//	println("Dangerous uses of <v> found in conditional, no match at <qr.l>");
+						//	return res;
+						//}
+						varExprs = replaceInExpr(getVariablePart(e), v, { scalar(string(sv)) | sv <- getUsefulCondExpressionValues(cond,v)});
+						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
+					} else {
+						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternThirtyThree(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternThirtyThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtythree"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] patternThirtyFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return patternThirtyFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats patternThirtyFour(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved, e := qr.e, containsSingleVar(getVariablePart(e))) {
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(qr.e)> at <qr.e@at>");
+			} else {
+				// We have a variable feature use, so get the actual variable used to hold it
+				str v = getSingleVar(getVariablePart(e));
+				
+				// Find the node inside the system using a visit, that way we can also
+				// find the containing foreach
+				Script s = pt[qr.l.top];
+				list[Case] cases = [ ];
+				list[Stmt] switches = [ ];
+				
+				visit(s) {
+					case Expr e2 : {
+						if ((e2@at)? && (e2@at == qr.l)) {
+							fullPath = getTraversalContextNodes();
+							caseFound = false;
+							for (i <- index(fullPath)) {
+								if (!caseFound && Case cf:\case(_,_) := fullPath[i]) {
+									cases = cases + cf;
+									caseFound = true;
+								} else if (caseFound && Stmt sf:\switch(_,_) := fullPath[i]) {
+									switches = switches + sf;
+									break;
+								}
+							}
+						} 
+					}
+				}
+				
+				if (!isEmpty(cases) && !isEmpty(switches)) {
+					containingCase = cases[0];
+					containingSwitch = switches[0];
+					
+					// Is this switch useful?
+					if (var(name(name(v))) := containingSwitch.cond) {
+						possibleCases = reachableCases(c, qr.e, containingSwitch.cases);
+						caseValues = { scalar(string(sval)) | \case(someExpr(scalar(string(sval))),_) <- possibleCases };
+						varExprs = replaceInExpr(getVariablePart(e), v, caseValues);
+						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
+					}
+				}
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] patternThirtyFour(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = patternThirtyFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtyfour"),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] antiPatternOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return antiPatternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats antiPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved) {
+			set[str] containerVars = { };
+			list[Stmt] containingFunctions = [];
+			list[ClassItem] containingMethods = [];
+			
+			Script s = pt[qr.l.top];
+			visit(s) {
+				case Expr e2 : {
+					if ( (e2@at)? && (e2@at == qr.l) ) {
+						containingFunctions = [ tcn | Stmt tcn <- getTraversalContextNodes(), tcn is function ];
+						containingMethods = [ tcn | ClassItem tcn <- getTraversalContextNodes(), tcn is method ];
+					}
+				}
+			} 
+			
+			if (size(containingMethods) > 0) {
+				containerVars = { pn | param(pn,_,_,_) <- containingMethods[0].params };
+			} else if (size(containingFunctions) > 0) {
+				containerVars = { pn | param(pn,_,_,_) <- containingFunctions[0].params };
+			}
+			
+			qrVars = { vn | /var(name(name(vn))) := qr.e };
+			
+			if (size(containerVars & qrVars) > 0) {
+				res = res + < qr.l, unknownVar() >;
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] antiPatternTwo(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = antiPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(patternOrder(),s));
+	}
+	
+	return res;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] antiPatternTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return antiPatternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats antiPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	rel[loc,AnalysisName] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved) {
+			set[str] containerVars = { };
+			list[Stmt] containingFunctions = [];
+			list[ClassItem] containingMethods = [];
+			
+			Script s = pt[qr.l.top];
+			visit(s) {
+				case Expr e2 : {
+					if ( (e2@at)? && (e2@at == qr.l) ) {
+						containingFunctions = [ tcn | Stmt tcn <- getTraversalContextNodes(), tcn is function ];
+						containingMethods = [ tcn | ClassItem tcn <- getTraversalContextNodes(), tcn is method ];
+					}
+				}
+			} 
+			
+			if (size(containingMethods) > 0) {
+				containerVars = { pn | param(pn,_,_,_) <- containingMethods[0].params };
+			} else if (size(containingFunctions) > 0) {
+				containerVars = { pn | param(pn,_,_,_) <- containingFunctions[0].params };
+			}
+			
+			qrVars = { vn | /var(name(name(vn))) := qr.e };
+			
+			if (size(containerVars & qrVars) > 0) {
+				res = res + < qr.l, unknownVar() >;
+			}
+		}
+		 
+		return res;
+	}
+	 
+	vvusesRes = resolvePattern(vv.vvuses<2>);
+	vvcallsRes = resolvePattern(vv.vvcalls<2>);
+	vvmcallsRes = resolvePattern(vv.vvmcalls<2>);
+	vvnewsRes = resolvePattern(vv.vvnews<2>);
+	vvpropsRes = resolvePattern(vv.vvprops<2>);
+	vvcconstsRes = resolvePattern(vv.vvcconsts<2>);
+	vvscallsRes = resolvePattern(vv.vvscalls<2>);
+	vvstargetsRes = resolvePattern(vv.vvstargets<2>);
+	vvspropsRes = resolvePattern(vv.vvsprops<2>);
+	vvsptargetsRes = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), size(vv.vvuses<2>), vvusesRes),
+		resolveStats(size(vvcallsRes<0>), size(vv.vvcalls<2>), vvcallsRes),
+		resolveStats(size(vvmcallsRes<0>), size(vv.vvmcalls<2>), vvmcallsRes),
+		resolveStats(size(vvnewsRes<0>), size(vv.vvnews<2>), vvnewsRes),
+		resolveStats(size(vvpropsRes<0>), size(vv.vvprops<2>), vvpropsRes),
+		resolveStats(size(vvcconstsRes<0>), size(vv.vvcconsts<2>), vvcconstsRes),
+		resolveStats(size(vvscallsRes<0>), size(vv.vvscalls<2>), vvscallsRes),
+		resolveStats(size(vvstargetsRes<0>), size(vv.vvstargets<2>), vvstargetsRes),
+		resolveStats(size(vvspropsRes<0>), size(vv.vvsprops<2>), vvspropsRes),
+		resolveStats(size(vvsptargetsRes<0>), size(vv.vvsptargets<2>), vvsptargetsRes));
+}
+
+public map[str s, PatternStats p] antiPatternTwo(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = antiPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(patternOrder(),s));
 	}
 	
 	return res;
@@ -2310,4 +3798,56 @@ public set[Case] reachableCases(CFG g, Expr e, list[Case] cs) {
 	
 	// Get the cases associated with the reachable case expression nodes
 	return { c | < _, l, c > <- searchExprs, l in reachableCaseExprNodeLocs };
+}
+
+public list[str] patternOrder() {
+	return [ "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+			 "twentyone", "twentytwo", "twentythree", "twentyfour", "twentyfive",
+			 "thirtyone", "thirtytwo", "thirtythree", "thirtyfour"
+		   ];
+}
+
+public list[str] earlierPatterns(str s) {
+	po = patternOrder();
+	if (s in po) {
+		return po[..indexOf(po,s)];
+	}
+	return [];
+}
+
+public list[int] getForRange(Stmt f, str v) {
+	if (\for([_*,assign(var(name(name(v))),scalar(integer(si))),_*],[_*,cutoff,_*],[_*,incop,_*],_) := f &&
+	    (binaryOperation(var(name(name(v))), scalar(integer(si3)), compop) := cutoff) && 
+	    (assign(var(name(name(v))),_) := incop || assignWOp(var(name(name(v))),_,_) := incop || unaryOperation(var(name(name(v))),_) := incop) )
+	{
+		stepsize = 0;
+		if ( assign(var(name(name(v))),binaryOperation(var(name(name(v))),scalar(integer(si2)),plus())) := incop ) {
+			stepsize = si2;
+		} else if ( assign(var(name(name(v))),binaryOperation(var(name(name(v))),scalar(integer(si2)),plus())) := incop ) {
+			stepsize = si2;
+		} else if ( unaryOperation(var(name(name(v))), preInc()) := incop || unaryOperation(var(name(name(v))), postInc()) := incop) {
+			stepsize = 1;
+		} else {
+			return [ ]; // cannot use it
+		}
+		if (stepsize == 0) {
+			return [ ];
+		}
+		
+		maxnum = 0;
+		if ( lt() := compop) {
+			maxnum = si3 - 1;
+		} else if ( leq() := compop) {
+			maxnum = si3;
+		} else {
+			return [ ];
+		}
+		if ( maxnum <= si ) {
+			return [ ];
+		}
+		
+		return [si,si+stepsize..(maxnum+1)]; 
+	}
+	
+	return [ ];
 }
