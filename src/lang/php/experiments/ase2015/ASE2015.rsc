@@ -3844,12 +3844,12 @@ public PatternStats antiPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[S
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] antiPatternTwo(Corpus corpus) {
+public map[str s, PatternStats p] antiPatternOne(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = antiPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(patternOrder(),s));
+		res[s] = antiPatternOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(patternOrder(),s));
 	}
 	
 	return res;
@@ -3940,6 +3940,108 @@ public map[str s, PatternStats p] antiPatternTwo(Corpus corpus) {
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
 		res[s] = antiPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(patternOrder(),s));
+	}
+	
+	return res;
+}
+
+public bool inLocRanges(loc l, set[loc] ls) {
+	for (lsi <- ls) {
+		if (lsi.offset <= l.offset && (lsi.offset+lsi.length) >= l.offset) return true;
+	}
+	
+	return false;
+}
+
+@doc{
+	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
+}
+public rel[loc,AnalysisName] antiPatternThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return antiPatternThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+}
+
+public PatternStats antiPatternThree(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	// Load the ASTs for system
+	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
+	
+	// Load info on functions
+	fm = readFunctionInfo(corpus, system);
+	
+	// Collapse all the var features into one set
+	vvAll = collapseVVInfo(vv);
+	
+	// Load the CFG information map so we can get back generated CFGs
+	scriptCFGs = loadCFGMap(corpus, system);
+
+	tuple[rel[loc,AnalysisName],set[loc]] resolvePattern(list[QueryResult] qrSet) {
+		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
+			
+		// Grab back the proper control flow graph for a given location
+		for (qr <- qrSet, qr.l notin alreadyResolved) {
+			set[str] containerVars = { };
+			list[Stmt] containingFunctions = [];
+			list[ClassItem] containingMethods = [];
+			qrVars = { vn | /var(name(name(vn))) := qr.e };
+			
+			Script s = pt[qr.l.top];
+			visit(s) {
+				case Expr e2 : {
+					if ( (e2@at)? && (e2@at == qr.l) ) {
+						containingFunctions = [ tcn | Stmt tcn <- getTraversalContextNodes(), tcn is function ];
+						containingMethods = [ tcn | ClassItem tcn <- getTraversalContextNodes(), tcn is method ];
+					}
+				}
+			} 
+			
+			globalDecls = { };
+			
+			if (size(containingMethods) > 0) {
+				globalDecls = { g | /g:global([_*,var(name(name(vn))),_*]) := containingMethods[0].body, vn in qrVars };
+			} else if (size(containingFunctions) > 0) {
+				globalDecls = { g | /g:global([_*,var(name(name(vn))),_*]) := containingFunctions[0].body, vn in qrVars };
+			} else {
+				filterLocs = { f@at | /f:function(_,_,_,_) := s } + { m@at | /m:method(_,_,_,_,_) := s };
+				globalDecls = { g | /g:global([_*,var(name(name(vn))),_*]) := s, vn in qrVars, !(inLocRanges(g@at,filterLocs))};
+			}
+						
+			if (size(globalDecls) > 0) {
+				res = res + < qr.l, unknownVar() >;
+			}
+		}
+		 
+		return < res, unres >;
+	}
+	 
+	< vvusesRes, vvusesUnres > = resolvePattern(vv.vvuses<2>);
+	< vvcallsRes, vvcallsUnres > = resolvePattern(vv.vvcalls<2>);
+	< vvmcallsRes, vvmcallsUnres > = resolvePattern(vv.vvmcalls<2>);
+	< vvnewsRes, vvnewsUnres > = resolvePattern(vv.vvnews<2>);
+	< vvpropsRes, vvpropsUnres > = resolvePattern(vv.vvprops<2>);
+	< vvcconstsRes, vvcconstsUnres > = resolvePattern(vv.vvcconsts<2>);
+	< vvscallsRes, vvscallsUnres > = resolvePattern(vv.vvscalls<2>);
+	< vvstargetsRes, vvstargetsUnres > = resolvePattern(vv.vvstargets<2>);
+	< vvspropsRes, vvspropsUnres > = resolvePattern(vv.vvsprops<2>);
+	< vvsptargetsRes, vvsptargetsUnres > = resolvePattern(vv.vvsptargets<2>);
+	
+	return patternStats(
+		resolveStats(size(vvusesRes<0>), vvusesRes, vvusesUnres),
+		resolveStats(size(vvcallsRes<0>), vvcallsRes, vvcallsUnres),
+		resolveStats(size(vvmcallsRes<0>), vvmcallsRes, vvmcallsUnres),
+		resolveStats(size(vvnewsRes<0>), vvnewsRes, vvnewsUnres),
+		resolveStats(size(vvpropsRes<0>), vvpropsRes, vvpropsUnres),
+		resolveStats(size(vvcconstsRes<0>), vvcconstsRes, vvcconstsUnres),
+		resolveStats(size(vvscallsRes<0>), vvscallsRes, vvscallsUnres),
+		resolveStats(size(vvstargetsRes<0>), vvstargetsRes, vvstargetsUnres),
+		resolveStats(size(vvspropsRes<0>), vvspropsRes, vvspropsUnres),
+		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
+}
+
+public map[str s, PatternStats p] antiPatternThree(Corpus corpus) {
+	map[str s, PatternStats p] res = ( );
+	
+	for (s <- corpus) {
+		pt = loadBinary(s, corpus[s]);
+		res[s] = antiPatternThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(patternOrder(),s));
 	}
 	
 	return res;
