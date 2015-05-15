@@ -2848,13 +2848,16 @@ public str patternResultsAsLatex(map[str s, PatternStats p] pstats, str pname, C
 	int allResolved(str p) = pstats[p].vvuses.resolved + pstats[p].vvcalls.resolved + pstats[p].vvmcalls.resolved + pstats[p].vvnews.resolved + pstats[p].vvprops.resolved +
 		pstats[p].vvcconsts.resolved + pstats[p].vvscalls.resolved + pstats[p].vvstargets.resolved + pstats[p].vvsprops.resolved + pstats[p].vvsptargets.resolved;
 
+	int allUnresolved(str p) = size(pstats[p].vvuses.unresolvedLocs + pstats[p].vvcalls.unresolvedLocs + pstats[p].vvmcalls.unresolvedLocs + pstats[p].vvnews.unresolvedLocs + pstats[p].vvprops.unresolvedLocs +
+		pstats[p].vvcconsts.unresolvedLocs + pstats[p].vvscalls.unresolvedLocs + pstats[p].vvstargets.unresolvedLocs + pstats[p].vvsprops.unresolvedLocs + pstats[p].vvsptargets.unresolvedLocs);
+
 	int allUses(VVInfo vvi) = size(vvi.vvuses) + size(vvi.vvcalls) + size(vvi.vvmcalls) + size(vvi.vvnews) + size(vvi.vvprops) +
 		size(vvi.vvcconsts) + size(vvi.vvscalls) + size(vvi.vvstargets) + size(vvi.vvsprops) + size(vvi.vvsptargets);
 		
 	str productLine(str p) {
 		< lineCount, fileCount > = getOneFrom(ci[p,corpus[p]]);
 		vvi = loadVVInfo(corpus,p);
-		return "<p> & <c(pstats[p].vvuses)> && <c(pstats[p].vvcalls)> && <c(pstats[p].vvmcalls)> && <c(pstats[p].vvprops)> && <c(pstats[p].vvnews)> && \\numprint{<allResolved(p)>} & \\numprint{<allUses(vvi)>} \\\\";
+		return "<p> & <c(pstats[p].vvuses)> && <c(pstats[p].vvcalls)> && <c(pstats[p].vvmcalls)> && <c(pstats[p].vvprops)> && <c(pstats[p].vvnews)> && \\numprint{<allResolved(p)>} & \\numprint{<allUnresolved(p)>} \\\\";
 	}
 
 	res = "\\npaddmissingzero
@@ -3114,62 +3117,62 @@ public void runExtracts() {
 public void runPatterns() {
 	corpus = getBaseCorpus();
 
-	println("Running Pattern One");
-	writePatternStats("one", patternOne(corpus));
-
-	println("Running Pattern Two");
-	writePatternStats("two", patternTwo(corpus));
-
-	println("Running Pattern Three");
-	writePatternStats("three", patternThree(corpus));
-
-	println("Running Pattern Four");
-	writePatternStats("four", patternFour(corpus));
-
-	println("Running Pattern Five");
-	writePatternStats("five", patternFive(corpus));
-
-	println("Running Pattern Six");
-	writePatternStats("six", patternSix(corpus));
-
-	println("Running Pattern Seven");
-	writePatternStats("seven", patternSeven(corpus));
-
-	println("Running Pattern Eight");
-	writePatternStats("eight", patternEight(corpus));
-
-	println("Running Pattern Nine");
-	writePatternStats("nine", patternNine(corpus));
-
-	println("Running Pattern Ten");
-	writePatternStats("ten", patternTen(corpus));
-
-	println("Running Pattern Eleven");
-	writePatternStats("eleven", patternEleven(corpus));
-
-	println("Running Pattern Twelve");
-	writePatternStats("twelve", patternTwelve(corpus));
-
-	println("Running Pattern Thirteen");
-	writePatternStats("thirteen", patternThirteen(corpus));
-
-	println("Running Pattern Fourteen");
-	writePatternStats("fourteen", patternFourteen(corpus));
-
-	println("Running Pattern Twenty One");
-	writePatternStats("twentyone", patternTwentyOne(corpus));
-
-	println("Running Pattern Twenty Two");
-	writePatternStats("twentytwo", patternTwentyTwo(corpus));
-
-	println("Running Pattern Twenty Three");
-	writePatternStats("twentythree", patternTwentyThree(corpus));
-
-	println("Running Pattern Twenty Four");
-	writePatternStats("twentyfour", patternTwentyFour(corpus));
-
-	println("Running Pattern Twenty Five");
-	writePatternStats("twentyfive", patternTwentyFive(corpus));
+//	println("Running Pattern One");
+//	writePatternStats("one", patternOne(corpus));
+//
+//	println("Running Pattern Two");
+//	writePatternStats("two", patternTwo(corpus));
+//
+//	println("Running Pattern Three");
+//	writePatternStats("three", patternThree(corpus));
+//
+//	println("Running Pattern Four");
+//	writePatternStats("four", patternFour(corpus));
+//
+//	println("Running Pattern Five");
+//	writePatternStats("five", patternFive(corpus));
+//
+//	println("Running Pattern Six");
+//	writePatternStats("six", patternSix(corpus));
+//
+//	println("Running Pattern Seven");
+//	writePatternStats("seven", patternSeven(corpus));
+//
+//	println("Running Pattern Eight");
+//	writePatternStats("eight", patternEight(corpus));
+//
+//	println("Running Pattern Nine");
+//	writePatternStats("nine", patternNine(corpus));
+//
+//	println("Running Pattern Ten");
+//	writePatternStats("ten", patternTen(corpus));
+//
+//	println("Running Pattern Eleven");
+//	writePatternStats("eleven", patternEleven(corpus));
+//
+//	println("Running Pattern Twelve");
+//	writePatternStats("twelve", patternTwelve(corpus));
+//
+//	println("Running Pattern Thirteen");
+//	writePatternStats("thirteen", patternThirteen(corpus));
+//
+//	println("Running Pattern Fourteen");
+//	writePatternStats("fourteen", patternFourteen(corpus));
+//
+//	println("Running Pattern Twenty One");
+//	writePatternStats("twentyone", patternTwentyOne(corpus));
+//
+//	println("Running Pattern Twenty Two");
+//	writePatternStats("twentytwo", patternTwentyTwo(corpus));
+//
+//	println("Running Pattern Twenty Three");
+//	writePatternStats("twentythree", patternTwentyThree(corpus));
+//
+//	println("Running Pattern Twenty Four");
+//	writePatternStats("twentyfour", patternTwentyFour(corpus));
+//
+//	println("Running Pattern Twenty Five");
+//	writePatternStats("twentyfive", patternTwentyFive(corpus));
 
 	println("Running Pattern Thirty One");
 	writePatternStats("thirtyone", patternThirtyOne(corpus));
@@ -3269,6 +3272,10 @@ public bool isUsefulCondExpression(Expr e, str v) {
 	    
 }
 
+public bool maybeUsefulCondExpression(Expr e, str v) {
+	return (/var(name(name(v))) := e);
+}
+
 public set[str] getUsefulCondExpressionValues(Expr e, str v) {
 	if (binaryOperation(var(name(name(v))),scalar(string(s)),equal()) := e ||
 	    binaryOperation(var(name(name(v))),scalar(string(s)),identical()) := e ||
@@ -3346,9 +3353,10 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 						//	return res;
 						//}
 						res = res + { < qr.l, varName(vi) > | vi <- getUsefulCondExpressionValues(cond, v) };
+					} else if (maybeUsefulCondExpression(cond,v)) {
+						unres = unres + qr.l;
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
-						unres = unres + qr.l;
 					}
 				} else if (elseIf(Expr cond, list[Stmt] body) := part) {
 					// If we are here, this means the use is inside the elseIf body. See if the condition
@@ -3362,9 +3370,10 @@ public PatternStats patternThirtyOne(Corpus corpus, str system, VVInfo vv, Maybe
 						//	return res;
 						//}
 						res = res + { < qr.l, varName(vi) > | vi <- getUsefulCondExpressionValues(cond, v) };
+					} else if (maybeUsefulCondExpression(cond,v)) {
+						unres = unres + qr.l;
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
-						unres = unres + qr.l;
 					}
 				}
 			}
@@ -3474,7 +3483,7 @@ public PatternStats patternThirtyTwo(Corpus corpus, str system, VVInfo vv, Maybe
 						possibleCases = reachableCases(c, qr.e, containingSwitch.cases);
 						caseValues = { sval | \case(someExpr(scalar(string(sval))),_) <- possibleCases };
 						res = res + { < qr.l, varName(cv) > | cv <- caseValues };
-					} else {
+					} else if (/var(name(name(v))) := containingSwitch.cond) {
 						unres = unres + qr.l;
 					}
 				}
@@ -3579,9 +3588,10 @@ public PatternStats patternThirtyThree(Corpus corpus, str system, VVInfo vv, May
 						//}
 						varExprs = replaceInExpr(getVariablePart(e), v, { scalar(string(sv)) | sv <- getUsefulCondExpressionValues(cond,v)});
 						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
+					} else if (maybeUsefulCondExpression(cond,v)) {
+						unres = unres + qr.l;
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
-						unres = unres + qr.l;
 					}
 				} else if (elseIf(Expr cond, list[Stmt] body) := part) {
 					// If we are here, this means the use is inside the elseIf body. See if the condition
@@ -3596,9 +3606,10 @@ public PatternStats patternThirtyThree(Corpus corpus, str system, VVInfo vv, May
 						//}
 						varExprs = replaceInExpr(getVariablePart(e), v, { scalar(string(sv)) | sv <- getUsefulCondExpressionValues(cond,v)});
 						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
+					} else if (maybeUsefulCondExpression(cond,v)) {
+						unres = unres + qr.l;
 					} else {
 						println("Conditional expression <pp(cond)> is not useful, no match at <qr.l>");
-						unres = unres + qr.l;
 					}
 				}
 			}
@@ -3709,7 +3720,7 @@ public PatternStats patternThirtyFour(Corpus corpus, str system, VVInfo vv, Mayb
 						caseValues = { scalar(string(sval)) | \case(someExpr(scalar(string(sval))),_) <- possibleCases };
 						varExprs = replaceInExpr(getVariablePart(e), v, caseValues);
 						res = res + { < qr.l, varName(getScalarString(ve)) > | ve <- varExprs, exprIsScalarString(ve) }; 
-					} else {
+					} else if (/var(name(name(v))) := containingSwitch.cond) {
 						unres = unres + qr.l;
 					}
 				}
