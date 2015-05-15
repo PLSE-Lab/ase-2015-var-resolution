@@ -3789,7 +3789,7 @@ public PatternStats antiPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[S
 		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
-		for (qr <- qrSet, qr.l notin alreadyResolved) {
+		for (qr <- qrSet) {
 			set[str] containerVars = { };
 			list[Stmt] containingFunctions = [];
 			list[ClassItem] containingMethods = [];
@@ -3814,6 +3814,9 @@ public PatternStats antiPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[S
 			
 			if (size(containerVars & qrVars) > 0) {
 				res = res + < qr.l, unknownVar() >;
+				if (qr.l in alreadyResolved) {
+					unres = unres + qr.l;
+				}
 			}
 		}
 		 
@@ -3879,31 +3882,76 @@ public PatternStats antiPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[S
 		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
-		for (qr <- qrSet, qr.l notin alreadyResolved) {
-			set[str] containerVars = { };
-			list[Stmt] containingFunctions = [];
-			list[ClassItem] containingMethods = [];
-			
-			Script s = pt[qr.l.top];
-			visit(s) {
-				case Expr e2 : {
-					if ( (e2@at)? && (e2@at == qr.l) ) {
-						containingFunctions = [ tcn | Stmt tcn <- getTraversalContextNodes(), tcn is function ];
-						containingMethods = [ tcn | ClassItem tcn <- getTraversalContextNodes(), tcn is method ];
+		for (qr <- qrSet) {
+			qrVars = { vn | /var(name(name(vn))) := qr.e };
+			CFG c = loadCFG(findMapEntry(scriptCFGs[qr.l.top], qr.l));
+			if (emptyCFG() := c) {
+				println("WARNING: No CFG found for <pp(e)> at <e@at>");
+			} else {
+				g = cfgAsGraph(c);
+				apAssigns = { };
+				visit(carrier(g)) {
+					case a:assign(var(name(name(v))),call(_,_)) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:assign(var(name(name(v))),methodCall(_,_,_)) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:assign(var(name(name(v))),staticCall(_,_,_)) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:refAssign(var(name(name(v))),call(_,_)) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:refAssign(var(name(name(v))),methodCall(_,_,_)) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:refAssign(var(name(name(v))),staticCall(_,_,_)) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:assignWOp(var(name(name(v))),call(_,_),_) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:assignWOp(var(name(name(v))),methodCall(_,_,_),_) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
+					}
+
+					case a:assignWOp(var(name(name(v))),staticCall(_,_,_),_) : {
+						if (v in qrVars) {
+							apAssigns = apAssigns + a;
+						}
 					}
 				}
-			} 
-			
-			if (size(containingMethods) > 0) {
-				containerVars = { pn | param(pn,_,_,_) <- containingMethods[0].params };
-			} else if (size(containingFunctions) > 0) {
-				containerVars = { pn | param(pn,_,_,_) <- containingFunctions[0].params };
 			}
 			
-			qrVars = { vn | /var(name(name(vn))) := qr.e };
-			
-			if (size(containerVars & qrVars) > 0) {
+			if (size(apAssigns) > 0) {
 				res = res + < qr.l, unknownVar() >;
+				if (qr.l in alreadyResolved) {
+					unres = unres + qr.l;
+				}	
 			}
 		}
 		 
@@ -3977,7 +4025,7 @@ public PatternStats antiPatternThree(Corpus corpus, str system, VVInfo vv, Maybe
 		rel[loc,AnalysisName] res = { }; set[loc] unres = { };
 			
 		// Grab back the proper control flow graph for a given location
-		for (qr <- qrSet, qr.l notin alreadyResolved) {
+		for (qr <- qrSet) {
 			set[str] containerVars = { };
 			list[Stmt] containingFunctions = [];
 			list[ClassItem] containingMethods = [];
@@ -4006,6 +4054,9 @@ public PatternStats antiPatternThree(Corpus corpus, str system, VVInfo vv, Maybe
 						
 			if (size(globalDecls) > 0) {
 				res = res + < qr.l, unknownVar() >;
+				if (qr.l in alreadyResolved) {
+					unres = unres + qr.l;
+				}
 			}
 		}
 		 
