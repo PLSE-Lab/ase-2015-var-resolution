@@ -330,7 +330,7 @@ data ResolveStats = resolveStats(int resolved, rel[loc,AnalysisName] resolvedLoc
 public ResolveStats addResolveStats(ResolveStats r1, ResolveStats r2) {
 	r1.resolved = r1.resolved + r2.resolved;
 	r1.resolvedLocs = r1.resolvedLocs + r2.resolvedLocs;
-	r1.unresolvedLocs = r1.unresolvedLocs + r2.unresolvedLocs;
+	r1.unresolvedLocs = r1.unresolvedLocs + r2.unresolvedLocs - (r1.resolvedLocs<0> + r2.resolvedLocs<0>);
 	return r1;
 }
 
@@ -345,9 +345,28 @@ public PatternStats addPatternStats(PatternStats p1, PatternStats p2) {
 						addResolveStats(p1.vvsprops, p2.vvsprops), addResolveStats(p1.vvsptargets, p2.vvsptargets));
 }
 
+//public ResolveStats fixResolveStats(ResolveStats rs, set[loc] resolved) {
+//	rs.unresolvedLocs = rs.unresolvedLocs - resolved;
+//	return rs; 
+//}
+
 public map[str s, PatternStats p] addPatternStats(map[str s, PatternStats p] p1, map[str s, PatternStats p] p2) {
 	return (s : addPatternStats(p1[s],p2[s]) | s <- p1 );
 }
+
+
+//public PatternStats fixPatternStats(PatternStats p1, set[loc] resolved) {
+//	return patternStats(fixResolveStats(p1.vvuses, resolved), fixResolveStats(p1.vvcalls, resolved),
+//						fixResolveStats(p1.vvmcalls, resolved), fixResolveStats(p1.vvnews, resolved),
+//						fixResolveStats(p1.vvprops, resolved), fixResolveStats(p1.vvcconsts, resolved),
+//						fixResolveStats(p1.vvscalls, resolved), fixResolveStats(p1.vvstargets, resolved),
+//						fixResolveStats(p1.vvsprops, resolved), fixResolveStats(p1.vvsptargets, resolved));
+//}
+//
+//public map[str s, PatternStats p] fixPatternStats(map[str s, PatternStats p] p1, map[str s, set[loc] resolved] resolvedMap) {
+//	return (s : fixPatternStats(p1[s],resolvedMap[s]) | s <- p1 );
+//}
+
 
 public bool hasDangerousUse(Stmt s, str v, FMParamInfo fm, set[loc] ignoreLocs = { }, bool ignoreNormalAssign=false) {
 	visit(s) {
@@ -2727,7 +2746,7 @@ public void extractVVInfo(Corpus corpus) {
 	for (s <- corpus) {
 		pt = loadBinary(s,corpus[s]);
 		vv = toVVInfo(getAllVV(s,corpus[s],pt));
-		writeBinaryValueFile(dataLoc + "<s>-<corpus[s]>.vvinfo", vv);
+		writeBinaryValueFile(dataLoc + "<s>-<corpus[s]>.vvinfo", vv, compression=false);
 	}
 }
 
@@ -2741,7 +2760,7 @@ public void writePatternStats(str pname, map[str s, PatternStats p] stats) {
 	if (!exists(resultLoc)) {
 		mkDirectory(resultLoc);
 	}
-	writeBinaryValueFile(resultLoc + "pattern-<pname>.bin", stats);
+	writeBinaryValueFile(resultLoc + "pattern-<pname>.bin", stats, compression=false);
 }
 
 public map[str s, PatternStats p] readPatternStats(str pname) {
@@ -2797,7 +2816,7 @@ public FMParamInfo extractFunctionInfo(System s) {
 private loc functionInfoLoc = baseLoc + "serialized/functionInfo";
 
 public void writeFunctionInfo(Corpus corpus, str s, FMParamInfo fp) {
-	writeBinaryValueFile(functionInfoLoc + "<s>-<corpus[s]>.finfo", fp);
+	writeBinaryValueFile(functionInfoLoc + "<s>-<corpus[s]>.finfo", fp, compression=false);
 }
 
 public FMParamInfo readFunctionInfo(Corpus corpus, str s) {
@@ -2817,29 +2836,25 @@ public str patternResultsAsLatex(map[str s, PatternStats p] pstats, str pname, C
 	ci = loadCountsCSV();
 	
 	str headerLine() {
-		return "Product & Files & \\multicolumn{17}{c}{Resolved Variable Features, Pattern <pname>} \\\\
-		       '\\cmidrule{3-19}
-		       ' & & \\multicolumn{2}{c}{Variables} & \\phantom{a} & \\multicolumn{2}{c}{Function Calls} & \\phantom{a} & \\multicolumn{2}{c}{Method Calls} & \\phantom{a} & \\multicolumn{2}{c}{Property Fetches} & \\phantom{a} & \\multicolumn{2}{c}{Instantiations} & \\phantom{a} & \\multicolumn{2}{c}{All} \\\\
-		       '\\cmidrule{3-4} \\cmidrule{6-7} \\cmidrule{9-10} \\cmidrule{12-13} \\cmidrule{15-16} \\cmidrule{18-19}
-		       ' &  & Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses \\\\ \\midrule";
+		return "System & \\multicolumn{17}{c}{Resolved Variable Features, Pattern <pname>} \\\\
+		       '\\cmidrule{2-18}
+		       ' & \\multicolumn{2}{c}{Variables} & \\phantom{a} & \\multicolumn{2}{c}{Function Calls} & \\phantom{a} & \\multicolumn{2}{c}{Method Calls} & \\phantom{a} & \\multicolumn{2}{c}{Property Fetches} & \\phantom{a} & \\multicolumn{2}{c}{Instantiations} & \\phantom{a} & \\multicolumn{2}{c}{All} \\\\
+		       '\\cmidrule{2-3} \\cmidrule{5-6} \\cmidrule{8-9} \\cmidrule{11-12} \\cmidrule{14-15} \\cmidrule{17-18}
+		       ' & Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Total \\\\ \\midrule";
 	}
 	
-	str c(ResolveStats vv) = "\\numprint{<vv.resolved>} & \\numprint{<vv.total>}";
-	
-//data ResolveStats = resolveStats(int resolved, int total, rel[loc,AnalysisName] resolvedLocs);
-//
-//data PatternStats = patternStats(ResolveStats vvuses, ResolveStats vvcalls, ResolveStats vvmcalls, ResolveStats vvnews, ResolveStats vvprops,
-//								 ResolveStats vvcconsts, ResolveStats vvscalls, ResolveStats vvstargets, ResolveStats vvsprops, ResolveStats vvsptargets);
+	str c(ResolveStats vv) = "\\numprint{<vv.resolved>} & \\numprint{<size(vv.unresolvedLocs)>}";
 	
 	int allResolved(str p) = pstats[p].vvuses.resolved + pstats[p].vvcalls.resolved + pstats[p].vvmcalls.resolved + pstats[p].vvnews.resolved + pstats[p].vvprops.resolved +
 		pstats[p].vvcconsts.resolved + pstats[p].vvscalls.resolved + pstats[p].vvstargets.resolved + pstats[p].vvsprops.resolved + pstats[p].vvsptargets.resolved;
 
-	int allUses(str p) = pstats[p].vvuses.total + pstats[p].vvcalls.total + pstats[p].vvmcalls.total + pstats[p].vvnews.total + pstats[p].vvprops.total +
-		pstats[p].vvcconsts.total + pstats[p].vvscalls.total + pstats[p].vvstargets.total + pstats[p].vvsprops.total + pstats[p].vvsptargets.total;
+	int allUses(VVInfo vvi) = size(vvi.vvuses) + size(vvi.vvcalls) + size(vvi.vvmcalls) + size(vvi.vvnews) + size(vvi.vvprops) +
+		size(vvi.vvcconsts) + size(vvi.vvscalls) + size(vvi.vvstargets) + size(vvi.vvsprops) + size(vvi.vvsptargets);
 		
 	str productLine(str p) {
 		< lineCount, fileCount > = getOneFrom(ci[p,corpus[p]]);
-		return "<p> & \\numprint{<fileCount>} & <c(pstats[p].vvuses)> && <c(pstats[p].vvcalls)> && <c(pstats[p].vvmcalls)> && <c(pstats[p].vvprops)> && <c(pstats[p].vvnews)> && \\numprint{<allResolved(p)>} & \\numprint{<allUses(p)>} \\\\";
+		vvi = loadVVInfo(corpus,p);
+		return "<p> & <c(pstats[p].vvuses)> && <c(pstats[p].vvcalls)> && <c(pstats[p].vvmcalls)> && <c(pstats[p].vvprops)> && <c(pstats[p].vvnews)> && \\numprint{<allResolved(p)>} & \\numprint{<allUses(vvi)>} \\\\";
 	}
 
 	res = "\\npaddmissingzero
@@ -2849,7 +2864,56 @@ public str patternResultsAsLatex(map[str s, PatternStats p] pstats, str pname, C
 		  '\\caption{PHP Variable Features Resolved By Pattern <pname>.\\label{table-var-pattern-<pname>}}
 		  '\\ra{1.0}
 		  '\\resizebox{\\textwidth}{!}{%
-		  '\\begin{tabular}{@{}lrrrcrrcrrcrrcrrcrr@{}} \\toprule 
+		  '\\begin{tabular}{@{}lrrcrrcrrcrrcrrcrr@{}} \\toprule 
+		  '<headerLine()> <for (p <- sort(toList(corpus<0>),bool(str s1,str s2) { return toUpperCase(s1)<toUpperCase(s2); })) {>
+		  '  <productLine(p)> <}>
+		  '\\bottomrule
+		  '\\end{tabular}
+		  '}
+		  '\\end{table*}
+		  '";
+	return res;
+}
+
+public str patternResultsAsLatexForAll(map[str s, PatternStats p] pstats, str pname, Corpus corpus) {
+							 
+	ci = loadCountsCSV();
+	
+	str headerLine() {
+		return "System & \\multicolumn{17}{c}{Resolved Variable Features, Pattern <pname>} \\\\
+		       '\\cmidrule{2-18}
+		       ' & \\multicolumn{2}{c}{Variables} & \\phantom{a} & \\multicolumn{2}{c}{Function Calls} & \\phantom{a} & \\multicolumn{2}{c}{Method Calls} & \\phantom{a} & \\multicolumn{2}{c}{Property Fetches} & \\phantom{a} & \\multicolumn{2}{c}{Instantiations} & \\phantom{a} & \\multicolumn{2}{c}{All} \\\\
+		       '\\cmidrule{2-3} \\cmidrule{5-6} \\cmidrule{8-9} \\cmidrule{11-12} \\cmidrule{14-15} \\cmidrule{17-18}
+		       ' & Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses && Resolved & Uses \\\\ \\midrule";
+	}
+	
+	str c(ResolveStats vv, int n) = "\\numprint{<vv.resolved>} & \\numprint{<n>}";
+	
+	int allResolved(str p) = pstats[p].vvuses.resolved + pstats[p].vvcalls.resolved + pstats[p].vvmcalls.resolved + pstats[p].vvnews.resolved + pstats[p].vvprops.resolved +
+		pstats[p].vvcconsts.resolved + pstats[p].vvscalls.resolved + pstats[p].vvstargets.resolved + pstats[p].vvsprops.resolved + pstats[p].vvsptargets.resolved;
+
+	int allUses(VVInfo vvi) = size(vvi.vvuses) + size(vvi.vvcalls) + size(vvi.vvmcalls) + size(vvi.vvnews) + size(vvi.vvprops) +
+		size(vvi.vvcconsts) + size(vvi.vvscalls) + size(vvi.vvstargets) + size(vvi.vvsprops) + size(vvi.vvsptargets);
+		
+	str productLine(str p) {
+		< lineCount, fileCount > = getOneFrom(ci[p,corpus[p]]);
+		vvi = loadVVInfo(corpus,p);
+		vvusesCount = size(vvi.vvuses);
+		vvcallsCount = size(vvi.vvcalls);
+		vvmcallsCount = size(vvi.vvmcalls);
+		vvpropsCount = size(vvi.vvprops);
+		vvnewsCount = size(vvi.vvnews);
+		return "<p> & <c(pstats[p].vvuses,vvusesCount)> && <c(pstats[p].vvcalls,vvcallsCount)> && <c(pstats[p].vvmcalls,vvmcallsCount)> && <c(pstats[p].vvprops,vvpropsCount)> && <c(pstats[p].vvnews,vvnewsCount)> && \\numprint{<allResolved(p)>} & \\numprint{<allUses(vvi)>} \\\\";
+	}
+
+	res = "\\npaddmissingzero
+		  '\\npfourdigitsep
+		  '\\begin{table*}
+		  '\\centering
+		  '\\caption{PHP Variable Features Resolved By Pattern <pname>.\\label{table-var-pattern-<pname>}}
+		  '\\ra{1.0}
+		  '\\resizebox{\\textwidth}{!}{%
+		  '\\begin{tabular}{@{}lrrcrrcrrcrrcrrcrr@{}} \\toprule 
 		  '<headerLine()> <for (p <- sort(toList(corpus<0>),bool(str s1,str s2) { return toUpperCase(s1)<toUpperCase(s2); })) {>
 		  '  <productLine(p)> <}>
 		  '\\bottomrule
@@ -2881,17 +2945,17 @@ public void extractCFGs(Corpus corpus) {
 			}
 			for (np <- scriptCFGs) {
 				if ([global()] == np) {
-					writeBinaryValueFile(ci.forTopLevel, scriptCFGs[np]);
+					writeBinaryValueFile(ci.forTopLevel, scriptCFGs[np], compression=false);
 				} else {
 					toWrite = cfgLoc + "cfg-<uniqueIds>.bin";				
 					uniqueIds = uniqueIds + 1;
-					writeBinaryValueFile(toWrite, scriptCFGs[np]);
+					writeBinaryValueFile(toWrite, scriptCFGs[np], compression=false);
 					ci.forContainers[scriptCFGs[np].at] = toWrite;
 				}
 			}
 			infoMap[l] = ci; 
 		}
-		writeBinaryValueFile(cfgLoc+"<s>-<corpus[s]>.cfgmap", infoMap);
+		writeBinaryValueFile(cfgLoc+"<s>-<corpus[s]>.cfgmap", infoMap, compression=false);
 	}
 }
 
@@ -3945,3 +4009,105 @@ public list[int] getForRange(Stmt f, str v) {
 	
 	return [ ];
 }
+
+public map[str s, PatternStats p] computeLoopStats(Corpus corpus) {
+	pstats = readPatternStats("one");
+	pstats = addPatternStats(pstats,readPatternStats("two"));	
+	pstats = addPatternStats(pstats,readPatternStats("three"));	
+	pstats = addPatternStats(pstats,readPatternStats("four"));	
+	pstats = addPatternStats(pstats,readPatternStats("five"));	
+	pstats = addPatternStats(pstats,readPatternStats("six"));	
+	pstats = addPatternStats(pstats,readPatternStats("seven"));	
+	pstats = addPatternStats(pstats,readPatternStats("eight"));	
+	pstats = addPatternStats(pstats,readPatternStats("nine"));	
+	pstats = addPatternStats(pstats,readPatternStats("ten"));	
+	pstats = addPatternStats(pstats,readPatternStats("eleven"));	
+	pstats = addPatternStats(pstats,readPatternStats("twelve"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirteen"));	
+	pstats = addPatternStats(pstats,readPatternStats("fourteen"));	
+	//alreadyResolved= ( s : patternResolvedLocs(earlierPatterns("twentyone"),s) | s <- corpus );
+	//pstats = fixPatternStats(pstats, alreadyResolved); 	
+	return pstats;
+}
+
+public void writeLoopStats(Corpus corpus) {
+	pstatsLoops = computeLoopStats(corpus);
+	paperLoc = |home:///Dropbox/Papers/2015/var-feature-resolution/|;
+	writeFile(paperLoc+"vv-pattern-loops.tex", patternResultsAsLatex(pstatsLoops,"loops",corpus));
+}
+
+public map[str s, PatternStats p] computeAssignmentStats(Corpus corpus) {
+	pstats = readPatternStats("twentyone");	
+	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentythree"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentyfour"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
+	//alreadyResolved= ( s : patternResolvedLocs(earlierPatterns("thirtyone"),s) | s <- corpus );
+	//pstats = fixPatternStats(pstats, alreadyResolved); 	
+	return pstats;
+}
+
+public void writeAssignmentStats(Corpus corpus) {
+	pstatsAssignments = computeAssignmentStats(corpus);
+	paperLoc = |home:///Dropbox/Papers/2015/var-feature-resolution/|;
+	writeFile(paperLoc+"vv-pattern-assignments.tex", patternResultsAsLatex(pstatsAssignments,"assignments",corpus));
+}
+
+public map[str s, PatternStats p] computeFlowStats(Corpus corpus) {
+	pstats = readPatternStats("thirtyone");	
+	pstats = addPatternStats(pstats,readPatternStats("thirtytwo"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtythree"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtyfour"));	
+	//alreadyResolved= ( s : patternResolvedLocs(patternOrder(),s) | s <- corpus );
+	//pstats = fixPatternStats(pstats, alreadyResolved); 	
+	return pstats;
+}
+
+public void writeFlowStats(Corpus corpus) {
+	pstatsFlow = computeFlowStats(corpus);
+	paperLoc = |home:///Dropbox/Papers/2015/var-feature-resolution/|;
+	writeFile(paperLoc+"vv-pattern-flow.tex", patternResultsAsLatex(pstatsFlow,"flow",corpus));
+}
+	
+public map[str s, PatternStats p] computeAllStats(Corpus corpus) {
+	pstats = readPatternStats("one");
+	pstats = addPatternStats(pstats,readPatternStats("two"));	
+	pstats = addPatternStats(pstats,readPatternStats("three"));	
+	pstats = addPatternStats(pstats,readPatternStats("four"));	
+	pstats = addPatternStats(pstats,readPatternStats("five"));	
+	pstats = addPatternStats(pstats,readPatternStats("six"));	
+	pstats = addPatternStats(pstats,readPatternStats("seven"));	
+	pstats = addPatternStats(pstats,readPatternStats("eight"));	
+	pstats = addPatternStats(pstats,readPatternStats("nine"));	
+	pstats = addPatternStats(pstats,readPatternStats("ten"));	
+	pstats = addPatternStats(pstats,readPatternStats("eleven"));	
+	pstats = addPatternStats(pstats,readPatternStats("twelve"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirteen"));	
+	pstats = addPatternStats(pstats,readPatternStats("fourteen"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentyone"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentythree"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentyfour"));	
+	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtyone"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtytwo"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtythree"));	
+	pstats = addPatternStats(pstats,readPatternStats("thirtyfour"));
+	
+	//alreadyResolved= ( s : patternResolvedLocs(patternOrder(),s) | s <- corpus );
+	//pstats = fixPatternStats(pstats, alreadyResolved); 	
+	return pstats;
+}
+
+public void writeAllStats(Corpus corpus) {
+	pstatsAll = computeAllStats(corpus);
+	paperLoc = |home:///Dropbox/Papers/2015/var-feature-resolution/|;
+	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatexForAll(pstatsAll,"all",corpus));
+}
+
+//public void fixPatternStats() {
+//	for (p <- patternOrder()) {
+//		println("Fixing <p>");
+//		writePatternStats(p, readPatternStats(p));
+//	}
+//}
