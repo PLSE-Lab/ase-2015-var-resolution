@@ -327,22 +327,30 @@ set[QueryResult] collapseVVInfo(VVInfo vv) {
 
 data ResolveStats = resolveStats(int resolved, rel[loc,AnalysisName] resolvedLocs, set[loc] unresolvedLocs);
 
-public ResolveStats addResolveStats(ResolveStats r1, ResolveStats r2) {
+public ResolveStats addResolveStats(ResolveStats r1, ResolveStats r2, bool fixUnresolved = true) {
 	r1.resolved = r1.resolved + r2.resolved;
 	r1.resolvedLocs = r1.resolvedLocs + r2.resolvedLocs;
-	r1.unresolvedLocs = r1.unresolvedLocs + r2.unresolvedLocs - (r1.resolvedLocs<0> + r2.resolvedLocs<0>);
+	r1.unresolvedLocs = r1.unresolvedLocs + r2.unresolvedLocs;
+	if (fixUnresolved) {
+		r1.unresolvedLocs = r1.unresolvedLocs - (r1.resolvedLocs<0> + r2.resolvedLocs<0>);
+	}
 	return r1;
 }
 
 data PatternStats = patternStats(ResolveStats vvuses, ResolveStats vvcalls, ResolveStats vvmcalls, ResolveStats vvnews, ResolveStats vvprops,
 								 ResolveStats vvcconsts, ResolveStats vvscalls, ResolveStats vvstargets, ResolveStats vvsprops, ResolveStats vvsptargets);
 
-public PatternStats addPatternStats(PatternStats p1, PatternStats p2) {
-	return patternStats(addResolveStats(p1.vvuses, p2.vvuses), addResolveStats(p1.vvcalls, p2.vvcalls),
-						addResolveStats(p1.vvmcalls, p2.vvmcalls), addResolveStats(p1.vvnews, p2.vvnews),
-						addResolveStats(p1.vvprops, p2.vvprops), addResolveStats(p1.vvcconsts, p2.vvcconsts),
-						addResolveStats(p1.vvscalls, p2.vvscalls), addResolveStats(p1.vvstargets, p2.vvstargets),
-						addResolveStats(p1.vvsprops, p2.vvsprops), addResolveStats(p1.vvsptargets, p2.vvsptargets));
+public PatternStats addPatternStats(PatternStats p1, PatternStats p2, bool fixUnresolved = true) {
+	return patternStats(addResolveStats(p1.vvuses, p2.vvuses, fixUnresolved = fixUnresolved), 
+						addResolveStats(p1.vvcalls, p2.vvcalls, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvmcalls, p2.vvmcalls, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvnews, p2.vvnews, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvprops, p2.vvprops, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvcconsts, p2.vvcconsts, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvscalls, p2.vvscalls, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvstargets, p2.vvstargets, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvsprops, p2.vvsprops, fixUnresolved = fixUnresolved),
+						addResolveStats(p1.vvsptargets, p2.vvsptargets, fixUnresolved = fixUnresolved));
 }
 
 //public ResolveStats fixResolveStats(ResolveStats rs, set[loc] resolved) {
@@ -350,8 +358,8 @@ public PatternStats addPatternStats(PatternStats p1, PatternStats p2) {
 //	return rs; 
 //}
 
-public map[str s, PatternStats p] addPatternStats(map[str s, PatternStats p] p1, map[str s, PatternStats p] p2) {
-	return (s : addPatternStats(p1[s],p2[s]) | s <- p1 );
+public map[str s, PatternStats p] addPatternStats(map[str s, PatternStats p] p1, map[str s, PatternStats p] p2, bool fixUnresolved = true) {
+	return (s : addPatternStats(p1[s], p2[s], fixUnresolved = fixUnresolved) | s <- p1 );
 }
 
 
@@ -2288,14 +2296,14 @@ public PatternStats patternTwentyOne(Corpus corpus, str system, VVInfo vv, Maybe
 						if (definitePropertyAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
-						} else {
+						} else if (potentialPropertyAssignment(c, s, qr.e)) {
 							unres = unres + qr.l;
 						}
 					} else if (var(name(name(s))) := vp) {
 						if (definiteVariableAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
-						} else {
+						} else if (potentialVariableAssignment(c, s, qr.e)) {
 							unres = unres + qr.l;
 						}
 					}
@@ -2380,14 +2388,14 @@ public PatternStats patternTwentyTwo(Corpus corpus, str system, VVInfo vv, Maybe
 						if (definitePropertyAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStrings2(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
-						} else {
+						} else if (potentialPropertyAssignment(c, s, qr.e)) {
 							unres = unres + qr.l;
 						}
 					} else if (var(name(name(s))) := vp) {
 						if (definiteVariableAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStrings2(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
-						} else {
+						} else if (potentialVariableAssignment(c, s, qr.e)) {
 							unres = unres + qr.l;
 						}
 					}
@@ -2474,11 +2482,9 @@ public PatternStats patternTwentyThree(Corpus corpus, str system, VVInfo vv, May
 						if (definiteVariableAssignment(c, v, qr.e)) {
 							assigned = gatherArrayOfStringsWithChaining(c, var(name(name(v))));
 							res = res + { < qr.l, varName(as) > | as <- assigned };
-						} else {
+						} else if (potentialVariableAssignment(c, v, qr.e)) {
 							unres = unres + qr.l;
 						}
-					} else {
-						unres = unres + qr.l;
 					}
 				} catch _ : {
 					continue;
@@ -2573,7 +2579,7 @@ public PatternStats patternTwentyFour(Corpus corpus, str system, VVInfo vv, Mayb
 						} else {
 							unres = unres + qr.l;
 						}
-					} else {
+					} else if (potentialVariableAssignment(c, v, qr.e)) {
 						unres = unres + qr.l;
 					}
 				} catch _ : {
@@ -2656,10 +2662,12 @@ public PatternStats patternTwentyFive(Corpus corpus, str system, VVInfo vv, Mayb
 					vp = getVariablePart(qr.e);
 					if (vp is ternary) {
 						assigned = ternaryStringResults(algebraicSimplification(vp));
-						res = res + { < qr.l, varName(as) > | as <- assigned };
-					} else {
-						unres = unres + qr.l;
-					}
+						if (size(assigned) > 0) {
+							res = res + { < qr.l, varName(as) > | as <- assigned };
+						} else {
+							unres = unres + qr.l;
+						}
+					} 
 				} catch _ : {
 					continue;
 				}
@@ -3006,7 +3014,7 @@ public bool definiteVariableAssignment(CFG g, str v, Expr usedBy) {
 			return false;
 		}
 
-		if (exprNode(assign(var(name(name(v))),_),_) := n) {
+		if (exprNode(assign(var(name(name(v))),aexp),_) := n, exprIsScalarStringOrChained(aexp)) {
 			return true;
 		}
 		toCheck = { gi | gi <- ggraph[n], gi notin checked };
@@ -3036,7 +3044,7 @@ public bool definitePropertyAssignment(CFG g, str v, Expr usedBy) {
 			return false;
 		}
 
-		if (exprNode(assign(propertyFetch(_,name(name(v))),_),_) := n) return true;
+		if (exprNode(assign(propertyFetch(_,name(name(v))),aexp),_) := n, exprIsScalarStringOrChained(aexp)) return true;
 		toCheck = { gi | gi <- ggraph[n], gi notin checked };
 		checked = checked + toCheck;
 		results = { assignedOnPath(gi) | gi <- toCheck };
@@ -3050,6 +3058,14 @@ public bool definitePropertyAssignment(CFG g, str v, Expr usedBy) {
 	}
 }
 
+
+public bool potentialVariableAssignment(CFG g, str v, Expr usedBy) {
+	return (/exprNode(assign(var(name(name(v))),_),_) := carrier(cfgAsGraph(g)));
+}
+
+public bool potentialPropertyAssignment(CFG g, str v, Expr usedBy) {
+	return (/exprNode(assign(propertyFetch(_,name(name(v))),_),_) := carrier(cfgAsGraph(g)));
+}
 
 public set[str] basicReachingDefs(CFG g, str v, Expr usedBy) {
 	ggraph = cfgAsGraph(g);
@@ -3187,6 +3203,19 @@ public void runPatterns() {
 	writePatternStats("thirtyfour", patternThirtyFour(corpus));
 }
 
+public void runAntiPatterns() {
+	corpus = getBaseCorpus();
+
+	println("Running Anti-Pattern One");
+	writePatternStats("antione", antiPatternOne(corpus));
+
+	println("Running Anti-Pattern Two");
+	writePatternStats("antitwo", antiPatternTwo(corpus));
+
+	println("Running Anti-Pattern Three");
+	writePatternStats("antithree", antiPatternThree(corpus));
+}
+	
 public void generateLatex() {
 	corpus = getBaseCorpus();
 	paperLoc = |home:///Dropbox/Papers/2015/var-feature-resolution/|;
@@ -3945,13 +3974,14 @@ public PatternStats antiPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[S
 						}
 					}
 				}
-			}
-			
-			if (size(apAssigns) > 0) {
-				res = res + < qr.l, unknownVar() >;
-				if (qr.l in alreadyResolved) {
-					unres = unres + qr.l;
-				}	
+				
+				if (size(apAssigns) > 0) {
+					res = res + < qr.l, unknownVar() >;
+					if (qr.l in alreadyResolved) {
+						unres = unres + qr.l;
+					}	
+				}
+				
 			}
 		}
 		 
@@ -4205,7 +4235,6 @@ public map[str s, PatternStats p] computeAssignmentStats(Corpus corpus) {
 	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentythree"));	
 	pstats = addPatternStats(pstats,readPatternStats("twentyfour"));	
-	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
 	//alreadyResolved= ( s : patternResolvedLocs(earlierPatterns("thirtyone"),s) | s <- corpus );
 	//pstats = fixPatternStats(pstats, alreadyResolved); 	
 	return pstats;
@@ -4219,6 +4248,7 @@ public void writeAssignmentStats(Corpus corpus) {
 
 public map[str s, PatternStats p] computeFlowStats(Corpus corpus) {
 	pstats = readPatternStats("thirtyone");	
+	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
 	pstats = addPatternStats(pstats,readPatternStats("thirtytwo"));	
 	pstats = addPatternStats(pstats,readPatternStats("thirtythree"));	
 	pstats = addPatternStats(pstats,readPatternStats("thirtyfour"));	
@@ -4269,9 +4299,15 @@ public void writeAllStats(Corpus corpus) {
 	writeFile(paperLoc+"vv-pattern-all.tex", patternResultsAsLatexForAll(pstatsAll,"all",corpus));
 }
 
-//public void fixPatternStats() {
-//	for (p <- patternOrder()) {
-//		println("Fixing <p>");
-//		writePatternStats(p, readPatternStats(p));
-//	}
-//}
+public map[str s, PatternStats p] computeAntiStats(Corpus corpus) {
+	pstats = readPatternStats("antione");	
+	pstats = addPatternStats(pstats,readPatternStats("antitwo"), fixUnresolved = false);	
+	pstats = addPatternStats(pstats,readPatternStats("antithree"), fixUnresolved = false);	
+	return pstats;
+}
+
+public void writeAntiStats(Corpus corpus) {
+	pstatsAnti = computeAntiStats(corpus);
+	paperLoc = |home:///Dropbox/Papers/2015/var-feature-resolution/|;
+	writeFile(paperLoc+"vv-pattern-anti.tex", patternResultsAsLatex(pstatsAnti,"anti",corpus));
+}
