@@ -760,7 +760,8 @@ public PatternStats loopPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[S
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
 							// TODO: Verify reachability, currently we are assuming this assignment reaches this use
-							assignments = getStandardAssignmentsFor(aname, carrier(g));
+							//assignments = getStandardAssignmentsFor(aname, carrier(g));
+							assignments = reachingDefs(c, aname, qr.e);
 							if (size(assignments<1>) == 1) {
 								assignLocs = assignments<0>;
 								assignExpr = getOneFrom(assignments<1>);						
@@ -1000,7 +1001,8 @@ public PatternStats loopPatternFour(Corpus corpus, str system, VVInfo vv, Maybe[
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
 							// TODO: Verify reachability
-							assignments = getStandardAssignmentsFor(aname, carrier(g));
+							//assignments = getStandardAssignmentsFor(aname, carrier(g));
+							assignments = reachingDefs(c, aname, qr.e);
 							if (size(assignments<1>) == 1) {
 								assignLocs = assignments<0>;
 								assignExpr = getOneFrom(assignments<1>);			
@@ -1251,7 +1253,8 @@ public PatternStats loopPatternSix(Corpus corpus, str system, VVInfo vv, Maybe[S
 							aexp = fe.arrayExpr;
 							if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
 								// TODO: Verify reachability
-								assignments = getStandardAssignmentsFor(aname, carrier(g));
+								//assignments = getStandardAssignmentsFor(aname, carrier(g));
+								assignments = reachingDefs(c, aname, qr.e);
 								if (size(assignments<1>) == 1) {
 									assignLocs = assignments<0>;
 									assignExpr = getOneFrom(assignments<1>);						
@@ -1505,7 +1508,8 @@ public PatternStats loopPatternEight(Corpus corpus, str system, VVInfo vv, Maybe
 							aexp = fe.arrayExpr;
 							if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
 								// TODO: Verify reachability
-								assignments = getStandardAssignmentsFor(aname, carrier(g));
+								//assignments = getStandardAssignmentsFor(aname, carrier(g));
+								assignments = reachingDefs(c, aname, qr.e);
 								if (size(assignments<1>) == 1) {
 									assignLocs = assignments<0>;
 									assignExpr = getOneFrom(assignments<1>);						
@@ -1752,7 +1756,8 @@ public PatternStats loopPatternTen(Corpus corpus, str system, VVInfo vv, Maybe[S
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
 							// TODO: Verify reachability
-							assignments = getStandardAssignmentsFor(aname, carrier(g));
+							//assignments = getStandardAssignmentsFor(aname, carrier(g));
+							assignments = reachingDefs(c, aname, qr.e);
 							if (size(assignments<1>) == 1) {
 								assignLocs = assignments<0>;
 								assignExpr = getOneFrom(assignments<1>);						
@@ -1999,7 +2004,8 @@ public PatternStats loopPatternTwelve(Corpus corpus, str system, VVInfo vv, Mayb
 						aexp = fe.arrayExpr;
 						if (var(name(name(aname))) := aexp || cast(array(),var(name(name(aname)))) := aexp) {
 							// TODO: Verify reachability
-							assignments = getStandardAssignmentsFor(aname, carrier(g));
+							//assignments = getStandardAssignmentsFor(aname, carrier(g));
+							assignments = reachingDefs(c, aname, qr.e);
 							if (size(assignments<1>) == 1) {
 								assignLocs = assignments<0>;
 								assignExpr = getOneFrom(assignments<1>);			
@@ -2348,14 +2354,14 @@ public PatternStats flowPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[S
 				try {
 					vp = getVariablePart(qr.e);
 					if (propertyFetch(_,name(name(s))) := vp) {
-						if (definitePropertyAssignment(c, s, qr.e)) {
+						if (definiteUsablePropertyAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
 						} else if (potentialPropertyAssignment(c, s, qr.e)) {
 							unres = unres + qr.l;
 						}
 					} else if (var(name(name(s))) := vp) {
-						if (definiteVariableAssignment(c, s, qr.e)) {
+						if (definiteUsableVariableAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStringsWithChaining(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
 						} else if (potentialVariableAssignment(c, s, qr.e)) {
@@ -2437,14 +2443,14 @@ public PatternStats flowPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[S
 				try {
 					vp = getVariablePart(qr.e);
 					if (propertyFetch(_,name(name(s))) := vp) {
-						if (definitePropertyAssignment(c, s, qr.e)) {
+						if (definiteUsablePropertyAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStrings2(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
 						} else if (potentialPropertyAssignment(c, s, qr.e)) {
 							unres = unres + qr.l;
 						}
 					} else if (var(name(name(s))) := vp) {
-						if (definiteVariableAssignment(c, s, qr.e)) {
+						if (definiteUsableVariableAssignment(c, s, qr.e)) {
 							assigned = gatherAssignedStrings2(c, vp);
 							res = res + { < qr.l, varName(as) > | as <- assigned };
 						} else if (potentialVariableAssignment(c, s, qr.e)) {
@@ -2528,7 +2534,7 @@ public PatternStats flowPatternThree(Corpus corpus, str system, VVInfo vv, Maybe
 				try {
 					vp = getVariablePart(qr.e);
 					if (fetchArrayDim(var(name(name(v))),_) := vp) {
-						if (definiteVariableAssignment(c, v, qr.e)) {
+						if (definiteUsableVariableAssignment(c, v, qr.e)) {
 							assigned = gatherArrayOfStringsWithChaining(c, var(name(name(v))));
 							res = res + { < qr.l, varName(as) > | as <- assigned };
 						} else if (potentialVariableAssignment(c, v, qr.e)) {
@@ -2615,7 +2621,7 @@ public PatternStats flowPatternFour(Corpus corpus, str system, VVInfo vv, Maybe[
 				try {
 					// We have a variable feature use, so get the actual variable used to hold it
 					str v = getSingleVar(getVariablePart(qr.e));
-					if (definiteVariableAssignment(c, v, qr.e)) {
+					if (definiteUsableVariableAssignment(c, v, qr.e)) {
 						assigned = gatherAssignedStringsWithChaining(c, var(name(name(v))));
 						// TODO: Check for dangerous uses, excluding assignment locs
 						varExprs = { replaceInExpr(getVariablePart(qr.e), v, scalar(string(asi))) | asi <- assigned };
@@ -2858,7 +2864,7 @@ public FMParamInfo extractFunctionInfo(System s) {
 		{ < fn, pi > | /functionSig([_*,function(fn)], list[ParamInfo] pi) := sysSignatures } +
 		{ < fn, plist2pilist(plist) > | functionSummary([_*,function(fn)],plist,_,_,_,_) <- fsum };
 	rel[str mname, list[ParamInfo] parameterInfo] methods = 
-		{ < mn, pi > | /functionSig([_*,method(mn)], list[ParamInfo] pi) := sysSignatures } +
+		{ < mn, pi > | /methodSig([_*,method(mn)], list[ParamInfo] pi) := sysSignatures } +
 		{ < mn, plist2pilist(plist) > | methodSummary([_*,function(fn)],_,plist,_,_,_,_) <- msum };
 		
 	return fmParamInfo(functions, methods);
@@ -3041,7 +3047,7 @@ public map[str s, PatternStats p] totalPatterns() {
 	return pstats;
 }
 
-public bool definiteVariableAssignment(CFG g, str v, Expr usedBy) {
+public bool definiteUsableVariableAssignment(CFG g, str v, Expr usedBy) {
 	set[CFGNode] checked = { };
 	ggraph = cfgAsGraph(g);
 	
@@ -3073,7 +3079,70 @@ public bool definiteVariableAssignment(CFG g, str v, Expr usedBy) {
 	}
 }
 
-public bool definitePropertyAssignment(CFG g, str v, Expr usedBy) {
+public bool definiteVariableAssignment(CFG g, str v, Expr usedBy) {
+	set[CFGNode] checked = { };
+	ggraph = cfgAsGraph(g);
+	
+	bool assignedOnPath(CFGNode n) {
+		// If we reach an exit node it doesn't matter, that means we have a path
+		// where we don't have a definition but we also don't have a use.
+		if (isExitNode(n)) {
+			return true;
+		}
+
+		// If we find a use of the expression this means we have the use before the def
+		if (exprNode(e,_) := n && e == usedBy && e@at == usedBy@at) {
+			return false;
+		}
+
+		if (exprNode(assign(var(name(name(v))),aexp),_) := n) {
+			return true;
+		}
+		toCheck = { gi | gi <- ggraph[n], gi notin checked };
+		checked = checked + toCheck;
+		results = { assignedOnPath(gi) | gi <- toCheck };
+		return false notin results;
+	}
+		
+	try {
+		return assignedOnPath(getEntryNode(g));
+	} catch xval : {
+		return false;
+	}
+}
+
+public rel[loc,Expr] reachingDefs(CFG g, str v, Expr usedBy) {
+	rel[loc,Expr] assignments = { };
+	set[CFGNode] checked = { };
+
+	if (!definiteVariableAssignment(g, v, usedBy)) return assignments;
+
+	ggraph = invert(cfgAsGraph(g));
+	startingNodes = { gn | gn:exprNode(en,_) <- g.nodes, en@at?, usedBy@at?, en@at == usedBy@at };
+	if (size(startingNodes) != 1) {
+		println("WARNING: Wrong number of starting nodes for <usedBy> at location <usedBy@at>, found <size(startingNodes)>");
+		return assignments;
+	}
+	startingNode = getOneFrom(startingNodes);
+	
+	void getDefs(CFGNode n) {
+		// TODO: Account for other styles of assignment into the variable
+		if (exprNode(ae:assign(var(name(name(v))),aexp),_) := n) {
+			assignments = assignments + < ae@at, ae >;
+		} else {
+			toCheck = { gi | gi <- ggraph[n], gi notin checked };
+			checked = checked + toCheck;
+			for (gi <- toCheck) {
+				getDefs(gi);
+			}
+		}
+	}
+		
+	getDefs(startingNode);
+	return assignments;
+}
+
+public bool definiteUsablePropertyAssignment(CFG g, str v, Expr usedBy) {
 	set[CFGNode] checked = { };
 	ggraph = cfgAsGraph(g);
 	
@@ -3176,41 +3245,41 @@ public void runExtracts() {
 public void runPatterns() {
 	corpus = getBaseCorpus();
 
-//	println("Running Pattern One");
-//	writePatternStats("one", loopPatternOne(corpus));
-//
-//	println("Running Pattern Two");
-//	writePatternStats("two", loopPatternTwo(corpus));
-//
-//	println("Running Pattern Three");
-//	writePatternStats("three", loopPatternThree(corpus));
-//
-//	println("Running Pattern Four");
-//	writePatternStats("four", loopPatternFour(corpus));
-//
-//	println("Running Pattern Five");
-//	writePatternStats("five", loopPatternFive(corpus));
-//
-//	println("Running Pattern Six");
-//	writePatternStats("six", loopPatternSix(corpus));
-//
-//	println("Running Pattern Seven");
-//	writePatternStats("seven", loopPatternSeven(corpus));
-//
-//	println("Running Pattern Eight");
-//	writePatternStats("eight", loopPatternEight(corpus));
-//
-//	println("Running Pattern Nine");
-//	writePatternStats("nine", loopPatternNine(corpus));
-//
-//	println("Running Pattern Ten");
-//	writePatternStats("ten", loopPatternTen(corpus));
-//
-//	println("Running Pattern Eleven");
-//	writePatternStats("eleven", loopPatternEleven(corpus));
-//
-//	println("Running Pattern Twelve");
-//	writePatternStats("twelve", loopPatternTwelve(corpus));
+	println("Running Pattern One");
+	writePatternStats("one", loopPatternOne(corpus));
+
+	println("Running Pattern Two");
+	writePatternStats("two", loopPatternTwo(corpus));
+
+	println("Running Pattern Three");
+	writePatternStats("three", loopPatternThree(corpus));
+
+	println("Running Pattern Four");
+	writePatternStats("four", loopPatternFour(corpus));
+
+	println("Running Pattern Five");
+	writePatternStats("five", loopPatternFive(corpus));
+
+	println("Running Pattern Six");
+	writePatternStats("six", loopPatternSix(corpus));
+
+	println("Running Pattern Seven");
+	writePatternStats("seven", loopPatternSeven(corpus));
+
+	println("Running Pattern Eight");
+	writePatternStats("eight", loopPatternEight(corpus));
+
+	println("Running Pattern Nine");
+	writePatternStats("nine", loopPatternNine(corpus));
+
+	println("Running Pattern Ten");
+	writePatternStats("ten", loopPatternTen(corpus));
+
+	println("Running Pattern Eleven");
+	writePatternStats("eleven", loopPatternEleven(corpus));
+
+	println("Running Pattern Twelve");
+	writePatternStats("twelve", loopPatternTwelve(corpus));
 
 	println("Running Pattern Thirteen");
 	writePatternStats("thirteen", loopPatternThirteen(corpus));
