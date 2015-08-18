@@ -2,7 +2,7 @@ Introduction
 ------------
 
 This repository contains the files supporting our recent ASE submission, available
-[here](http://www.cs.ecu.edu/hillsma/publications/var-feature-resolution.pdf).
+[here](http://www.cs.ecu.edu/hillsma/publications/var-feature-resolution.pdf). Note that we are currently working on improvements to the algorithms, so there are some slight differences between the numbers in the paper and those that are currently generated if you run the patterns on the corpus.
 
 Running Our Software
 --------------------
