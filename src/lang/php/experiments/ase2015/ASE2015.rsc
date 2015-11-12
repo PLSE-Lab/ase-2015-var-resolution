@@ -2897,7 +2897,7 @@ public str patternResultsAsLatex(map[str s, PatternStats p] pstats, str pname, C
 		       '\\cmidrule{2-18}
 		       ' & \\multicolumn{2}{c}{Variables} & \\phantom{a} & \\multicolumn{2}{c}{Function Calls} & \\phantom{a} & \\multicolumn{2}{c}{Method Calls} & \\phantom{a} & \\multicolumn{2}{c}{Property Fetches} & \\phantom{a} & \\multicolumn{2}{c}{Instantiations} & \\phantom{a} & \\multicolumn{2}{c}{All} \\\\
 		       '\\cmidrule{2-3} \\cmidrule{5-6} \\cmidrule{8-9} \\cmidrule{11-12} \\cmidrule{14-15} \\cmidrule{17-18}
-		       ' & Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Total \\\\ \\midrule";
+		       ' & Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved && Resolved & Unresolved \\\\ \\midrule";
 	}
 	
 	str c(ResolveStats vv) = "\\numprint{<vv.resolved>} & \\numprint{<size(vv.unresolvedLocs)>}";
@@ -3245,74 +3245,74 @@ public void runExtracts() {
 public void runPatterns() {
 	corpus = getBaseCorpus();
 
-	println("Running Pattern One");
-	writePatternStats("one", loopPatternOne(corpus));
-
-	println("Running Pattern Two");
-	writePatternStats("two", loopPatternTwo(corpus));
-
-	println("Running Pattern Three");
-	writePatternStats("three", loopPatternThree(corpus));
-
-	println("Running Pattern Four");
-	writePatternStats("four", loopPatternFour(corpus));
-
-	println("Running Pattern Five");
-	writePatternStats("five", loopPatternFive(corpus));
-
-	println("Running Pattern Six");
-	writePatternStats("six", loopPatternSix(corpus));
-
-	println("Running Pattern Seven");
-	writePatternStats("seven", loopPatternSeven(corpus));
-
-	println("Running Pattern Eight");
-	writePatternStats("eight", loopPatternEight(corpus));
-
-	println("Running Pattern Nine");
-	writePatternStats("nine", loopPatternNine(corpus));
-
-	println("Running Pattern Ten");
-	writePatternStats("ten", loopPatternTen(corpus));
-
-	println("Running Pattern Eleven");
-	writePatternStats("eleven", loopPatternEleven(corpus));
-
-	println("Running Pattern Twelve");
-	writePatternStats("twelve", loopPatternTwelve(corpus));
-
-	println("Running Pattern Thirteen");
-	writePatternStats("thirteen", loopPatternThirteen(corpus));
-
-	println("Running Pattern Fourteen");
-	writePatternStats("fourteen", loopPatternFourteen(corpus));
-
-////	println("Running Pattern Twenty One");
-////	writePatternStats("twentyone", flowPatternOne(corpus));
-////
-////	println("Running Pattern Twenty Two");
-////	writePatternStats("twentytwo", flowPatternTwo(corpus));
-////
-////	println("Running Pattern Twenty Three");
-////	writePatternStats("twentythree", flowPatternThree(corpus));
-////
-////	println("Running Pattern Twenty Four");
-////	writePatternStats("twentyfour", flowPatternFour(corpus));
-////
-////	println("Running Pattern Twenty Five");
-////	writePatternStats("twentyfive", flowPatternFive(corpus));
+//	println("Running Pattern One");
+//	writePatternStats("one", loopPatternOne(corpus));
 //
-//	println("Running Pattern Thirty One");
-//	writePatternStats("thirtyone", assignmentPatternOne(corpus));
+//	println("Running Pattern Two");
+//	writePatternStats("two", loopPatternTwo(corpus));
 //
-//	println("Running Pattern Thirty Two");
-//	writePatternStats("thirtytwo", assignmentPatternTwo(corpus));
+//	println("Running Pattern Three");
+//	writePatternStats("three", loopPatternThree(corpus));
 //
-//	println("Running Pattern Thirty Three");
-//	writePatternStats("thirtythree", assignmentPatternThree(corpus));
+//	println("Running Pattern Four");
+//	writePatternStats("four", loopPatternFour(corpus));
 //
-//	println("Running Pattern Thirty Four");
-//	writePatternStats("thirtyfour", assignmentPatternFour(corpus));
+//	println("Running Pattern Five");
+//	writePatternStats("five", loopPatternFive(corpus));
+//
+//	println("Running Pattern Six");
+//	writePatternStats("six", loopPatternSix(corpus));
+//
+//	println("Running Pattern Seven");
+//	writePatternStats("seven", loopPatternSeven(corpus));
+//
+//	println("Running Pattern Eight");
+//	writePatternStats("eight", loopPatternEight(corpus));
+//
+//	println("Running Pattern Nine");
+//	writePatternStats("nine", loopPatternNine(corpus));
+//
+//	println("Running Pattern Ten");
+//	writePatternStats("ten", loopPatternTen(corpus));
+//
+//	println("Running Pattern Eleven");
+//	writePatternStats("eleven", loopPatternEleven(corpus));
+//
+//	println("Running Pattern Twelve");
+//	writePatternStats("twelve", loopPatternTwelve(corpus));
+//
+//	println("Running Pattern Thirteen");
+//	writePatternStats("thirteen", loopPatternThirteen(corpus));
+//
+//	println("Running Pattern Fourteen");
+//	writePatternStats("fourteen", loopPatternFourteen(corpus));
+
+	println("Running Pattern Twenty One");
+	writePatternStats("twentyone", flowPatternOne(corpus));
+
+	println("Running Pattern Twenty Two");
+	writePatternStats("twentytwo", flowPatternTwo(corpus));
+
+	println("Running Pattern Twenty Three");
+	writePatternStats("twentythree", flowPatternThree(corpus));
+
+	println("Running Pattern Twenty Four");
+	writePatternStats("twentyfour", flowPatternFour(corpus));
+
+	println("Running Pattern Twenty Five");
+	writePatternStats("twentyfive", flowPatternFive(corpus));
+
+	println("Running Pattern Thirty One");
+	writePatternStats("thirtyone", assignmentPatternOne(corpus));
+
+	println("Running Pattern Thirty Two");
+	writePatternStats("thirtytwo", assignmentPatternTwo(corpus));
+
+	println("Running Pattern Thirty Three");
+	writePatternStats("thirtythree", assignmentPatternThree(corpus));
+
+	println("Running Pattern Thirty Four");
+	writePatternStats("thirtyfour", assignmentPatternFour(corpus));
 }
 
 public void runAntiPatterns() {
@@ -3347,16 +3347,16 @@ public void generateLatex() {
 	writeFile(paperLoc+"vv-pattern-thirteen.tex", patternResultsAsLatex(readPatternStats("thirteen"), "thirteen", corpus));	
 	writeFile(paperLoc+"vv-pattern-fourteen.tex", patternResultsAsLatex(readPatternStats("fourteen"), "fourteen", corpus));	
 
-	//writeFile(paperLoc+"vv-pattern-twenty-one.tex", patternResultsAsLatex(readPatternStats("twentyone"), "twentyone", corpus));	
-	//writeFile(paperLoc+"vv-pattern-twenty-two.tex", patternResultsAsLatex(readPatternStats("twentytwo"), "twentytwo", corpus));
-	//writeFile(paperLoc+"vv-pattern-twenty-three.tex", patternResultsAsLatex(readPatternStats("twentythree"), "twentythree", corpus));
-	//writeFile(paperLoc+"vv-pattern-twenty-four.tex", patternResultsAsLatex(readPatternStats("twentyfour"), "twentyfour", corpus));
-	//writeFile(paperLoc+"vv-pattern-twenty-five.tex", patternResultsAsLatex(readPatternStats("twentyfive"), "twentyfive", corpus));
-	//
-	//writeFile(paperLoc+"vv-pattern-thirty-one.tex", patternResultsAsLatex(readPatternStats("thirtyone"), "thirtyone", corpus));
-	//writeFile(paperLoc+"vv-pattern-thirty-two.tex", patternResultsAsLatex(readPatternStats("thirtytwo"), "thirtytwo", corpus));
-	//writeFile(paperLoc+"vv-pattern-thirty-three.tex", patternResultsAsLatex(readPatternStats("thirtythree"), "thirtythree", corpus));
-	//writeFile(paperLoc+"vv-pattern-thirty-four.tex", patternResultsAsLatex(readPatternStats("thirtyfour"), "thirtyfour", corpus));
+	writeFile(paperLoc+"vv-pattern-twenty-one.tex", patternResultsAsLatex(readPatternStats("twentyone"), "twentyone", corpus));	
+	writeFile(paperLoc+"vv-pattern-twenty-two.tex", patternResultsAsLatex(readPatternStats("twentytwo"), "twentytwo", corpus));
+	writeFile(paperLoc+"vv-pattern-twenty-three.tex", patternResultsAsLatex(readPatternStats("twentythree"), "twentythree", corpus));
+	writeFile(paperLoc+"vv-pattern-twenty-four.tex", patternResultsAsLatex(readPatternStats("twentyfour"), "twentyfour", corpus));
+	writeFile(paperLoc+"vv-pattern-twenty-five.tex", patternResultsAsLatex(readPatternStats("twentyfive"), "twentyfive", corpus));
+	
+	writeFile(paperLoc+"vv-pattern-thirty-one.tex", patternResultsAsLatex(readPatternStats("thirtyone"), "thirtyone", corpus));
+	writeFile(paperLoc+"vv-pattern-thirty-two.tex", patternResultsAsLatex(readPatternStats("thirtytwo"), "thirtytwo", corpus));
+	writeFile(paperLoc+"vv-pattern-thirty-three.tex", patternResultsAsLatex(readPatternStats("thirtythree"), "thirtythree", corpus));
+	writeFile(paperLoc+"vv-pattern-thirty-four.tex", patternResultsAsLatex(readPatternStats("thirtyfour"), "thirtyfour", corpus));
 
 //	pstats = readPatternStats("one");
 //	pstats = addPatternStats(pstats,readPatternStats("two"));	
