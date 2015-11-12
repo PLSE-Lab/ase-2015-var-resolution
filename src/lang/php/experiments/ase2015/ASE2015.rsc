@@ -2324,11 +2324,11 @@ public map[str s, PatternStats p] loopPatternFourteen(Corpus corpus) {
 	used to hold the name of the identifier, and use assignments into this variable to determine the
 	possible names. This pattern does not involve the use of a foreach loop, unlike earlier patterns.
 }
-public rel[loc,AnalysisName] flowPatternOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return flowPatternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] assignmentPatternOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return assignmentPatternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats flowPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats assignmentPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -2401,12 +2401,12 @@ public PatternStats flowPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[S
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] flowPatternOne(Corpus corpus) {
+public map[str s, PatternStats p] assignmentPatternOne(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = flowPatternOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyone"),s));
+		res[s] = assignmentPatternOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyone"),s));
 	}
 	
 	return res;
@@ -2416,11 +2416,11 @@ public map[str s, PatternStats p] flowPatternOne(Corpus corpus) {
 	Resolve variable definitions for Pattern Twenty Two. This is similar to Pattern Twenty One, but focuses
 	on a corner case, where the name comes from ternary conditionals that give different strings.
 }
-public rel[loc,AnalysisName] flowPatternTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return flowPatternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] assignmentPatternTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return assignmentPatternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats flowPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats assignmentPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -2490,12 +2490,12 @@ public PatternStats flowPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[S
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] flowPatternTwo(Corpus corpus) {
+public map[str s, PatternStats p] assignmentPatternTwo(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = flowPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentytwo"),s));
+		res[s] = assignmentPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentytwo"),s));
 	}
 	
 	return res;
@@ -2505,11 +2505,11 @@ public map[str s, PatternStats p] flowPatternTwo(Corpus corpus) {
 	Resolve variable definitions for Pattern Twenty Three. This is similar to Pattern Twenty One, but focuses
 	on a corner case, where the name comes from an array of strings that we are indexing into.
 }
-public rel[loc,AnalysisName] flowPatternThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return flowPatternThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] assignmentPatternThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return assignmentPatternThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats flowPatternThree(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats assignmentPatternThree(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -2574,12 +2574,12 @@ public PatternStats flowPatternThree(Corpus corpus, str system, VVInfo vv, Maybe
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] flowPatternThree(Corpus corpus) {
+public map[str s, PatternStats p] assignmentPatternThree(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = flowPatternThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentythree"),s));
+		res[s] = assignmentPatternThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentythree"),s));
 	}
 	
 	return res;
@@ -2590,11 +2590,11 @@ public map[str s, PatternStats p] flowPatternThree(Corpus corpus) {
 	the case where the variable or property name isn't used directly, but is instead used inside an expression
 	that can be resolved to a string.
 }
-public rel[loc,AnalysisName] flowPatternFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return flowPatternFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] assignmentPatternFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return assignmentPatternFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats flowPatternFour(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats assignmentPatternFour(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -2667,12 +2667,12 @@ public PatternStats flowPatternFour(Corpus corpus, str system, VVInfo vv, Maybe[
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] flowPatternFour(Corpus corpus) {
+public map[str s, PatternStats p] assignmentPatternFour(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = flowPatternFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyfour"),s));
+		res[s] = assignmentPatternFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyfour"),s));
 	}
 	
 	return res;
@@ -2683,11 +2683,11 @@ public map[str s, PatternStats p] flowPatternFour(Corpus corpus) {
 	the case where the variable or property name isn't used directly, but is instead used inside an expression
 	that can be resolved to a string.
 }
-public rel[loc,AnalysisName] flowPatternFive(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return flowPatternFive(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] flowPatternTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return flowPatternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats flowPatternFive(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats flowPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -2750,12 +2750,12 @@ public PatternStats flowPatternFive(Corpus corpus, str system, VVInfo vv, Maybe[
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] flowPatternFive(Corpus corpus) {
+public map[str s, PatternStats p] flowPatternTwo(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = flowPatternFive(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyfive"),s));
+		res[s] = flowPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("twentyfive"),s));
 	}
 	
 	return res;
@@ -3288,31 +3288,31 @@ public void runPatterns() {
 //	writePatternStats("fourteen", loopPatternFourteen(corpus));
 
 	println("Running Pattern Twenty One");
-	writePatternStats("twentyone", flowPatternOne(corpus));
+	writePatternStats("twentyone", assignmentPatternOne(corpus));
 
 	println("Running Pattern Twenty Two");
-	writePatternStats("twentytwo", flowPatternTwo(corpus));
+	writePatternStats("twentytwo", assignmentPatternTwo(corpus));
 
 	println("Running Pattern Twenty Three");
-	writePatternStats("twentythree", flowPatternThree(corpus));
+	writePatternStats("twentythree", assignmentPatternThree(corpus));
 
 	println("Running Pattern Twenty Four");
-	writePatternStats("twentyfour", flowPatternFour(corpus));
+	writePatternStats("twentyfour", assignmentPatternFour(corpus));
 
 	println("Running Pattern Twenty Five");
-	writePatternStats("twentyfive", flowPatternFive(corpus));
+	writePatternStats("twentyfive", flowPatternTwo(corpus));
 
 	println("Running Pattern Thirty One");
-	writePatternStats("thirtyone", assignmentPatternOne(corpus));
+	writePatternStats("thirtyone", flowPatternOne(corpus));
 
 	println("Running Pattern Thirty Two");
-	writePatternStats("thirtytwo", assignmentPatternTwo(corpus));
+	writePatternStats("thirtytwo", flowPatternThree(corpus));
 
 	println("Running Pattern Thirty Three");
-	writePatternStats("thirtythree", assignmentPatternThree(corpus));
+	writePatternStats("thirtythree", flowPatternFour(corpus));
 
 	println("Running Pattern Thirty Four");
-	writePatternStats("thirtyfour", assignmentPatternFour(corpus));
+	writePatternStats("thirtyfour", flowPatternFive(corpus));
 }
 
 public void runAntiPatterns() {
@@ -3380,12 +3380,12 @@ public void generateLatex() {
 //	pstats = addPatternStats(pstats,readPatternStats("twentytwo"));	
 //	pstats = addPatternStats(pstats,readPatternStats("twentythree"));	
 //	pstats = addPatternStats(pstats,readPatternStats("twentyfour"));	
-//	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
 //
 //	pstatsAssignments = pstats;
 //	writeFile(paperLoc+"vv-pattern-assignments.tex", patternResultsAsLatex(pstatsAssignments,"assignments",corpus));
 //	
 //	pstats = readPatternStats("thirtyone");	
+//	pstats = addPatternStats(pstats,readPatternStats("twentyfive"));	
 //	pstats = addPatternStats(pstats,readPatternStats("thirtytwo"));	
 //	pstats = addPatternStats(pstats,readPatternStats("thirtythree"));	
 //	pstats = addPatternStats(pstats,readPatternStats("thirtyfour"));	
@@ -3436,11 +3436,11 @@ public set[str] getUsefulCondExpressionValues(Expr e, str v) {
 @doc{
 	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
 }
-public rel[loc,AnalysisName] assignmentPatternOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return assignmentPatternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] flowPatternOne(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return flowPatternOne(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats assignmentPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats flowPatternOne(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -3544,12 +3544,12 @@ public PatternStats assignmentPatternOne(Corpus corpus, str system, VVInfo vv, M
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] assignmentPatternOne(Corpus corpus) {
+public map[str s, PatternStats p] flowPatternOne(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = assignmentPatternOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtyone"),s));
+		res[s] = flowPatternOne(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtyone"),s));
 	}
 	
 	return res;
@@ -3558,11 +3558,11 @@ public map[str s, PatternStats p] assignmentPatternOne(Corpus corpus) {
 @doc{
 	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
 }
-public rel[loc,AnalysisName] assignmentPatternTwo(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return assignmentPatternTwo(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] flowPatternThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return flowPatternThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats assignmentPatternTwo(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats flowPatternThree(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -3652,12 +3652,12 @@ public PatternStats assignmentPatternTwo(Corpus corpus, str system, VVInfo vv, M
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] assignmentPatternTwo(Corpus corpus) {
+public map[str s, PatternStats p] flowPatternThree(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = assignmentPatternTwo(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtytwo"),s));
+		res[s] = flowPatternThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtytwo"),s));
 	}
 	
 	return res;
@@ -3666,11 +3666,11 @@ public map[str s, PatternStats p] assignmentPatternTwo(Corpus corpus) {
 @doc{
 	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
 }
-public rel[loc,AnalysisName] assignmentPatternThree(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return assignmentPatternThree(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] flowPatternFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return flowPatternFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats assignmentPatternThree(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats flowPatternFour(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -3774,12 +3774,12 @@ public PatternStats assignmentPatternThree(Corpus corpus, str system, VVInfo vv,
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] assignmentPatternThree(Corpus corpus) {
+public map[str s, PatternStats p] flowPatternFour(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = assignmentPatternThree(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtythree"),s));
+		res[s] = flowPatternFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtythree"),s));
 	}
 	
 	return res;
@@ -3788,11 +3788,11 @@ public map[str s, PatternStats p] assignmentPatternThree(Corpus corpus) {
 @doc{
 	Resolve variable definitions for Pattern Two. Pattern two is like pattern one, but the array may be defined outside of the foreach.
 }
-public rel[loc,AnalysisName] assignmentPatternFour(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
-	return assignmentPatternFour(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
+public rel[loc,AnalysisName] flowPatternFive(str system, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+	return flowPatternFive(getBaseCorpus(), system, loadVVInfo(getBaseCorpus(), system), ptopt = ptopt, alreadyResolved = alreadyResolved);
 }
 
-public PatternStats assignmentPatternFour(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
+public PatternStats flowPatternFive(Corpus corpus, str system, VVInfo vv, Maybe[System] ptopt = nothing(), set[loc] alreadyResolved = { }) {
 	// Load the ASTs for system
 	pt = (just(aSystem) := ptopt) ? aSystem : loadBinary(system, corpus[system]);
 	
@@ -3883,12 +3883,12 @@ public PatternStats assignmentPatternFour(Corpus corpus, str system, VVInfo vv, 
 		resolveStats(size(vvsptargetsRes<0>), vvsptargetsRes, vvsptargetsUnres));
 }
 
-public map[str s, PatternStats p] assignmentPatternFour(Corpus corpus) {
+public map[str s, PatternStats p] flowPatternFive(Corpus corpus) {
 	map[str s, PatternStats p] res = ( );
 	
 	for (s <- corpus) {
 		pt = loadBinary(s, corpus[s]);
-		res[s] = assignmentPatternFour(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtyfour"),s));
+		res[s] = flowPatternFive(corpus, s, loadVVInfo(getBaseCorpus(), s), ptopt = just(pt), alreadyResolved=patternResolvedLocs(earlierPatterns("thirtyfour"),s));
 	}
 	
 	return res;
